@@ -47,6 +47,16 @@ Running log. Keep current; this is printed into context at session start.
 - Theme is a mutable singleton (set_style dark/print) so all drawing code
   reads Theme.<attr>.
 
+## Improvement loop (started ~4am 2026-08-07, hourly cron @ :52)
+- Cycle 1 (it7): efficiency/loss/top-consumer analytics everywhere, PDF exec
+  summary + health verdict, CSV export, %-of-tree column.
+- Cycle 2 (it8): rail headroom budgets (CLI/MCP/PDF), undo/redo (Ctrl+Z/Y),
+  Excel States sheet, copy-flowchart-image + copy-table to clipboard.
+- Cycle 3 (it9): single-file HTML share report (export html), derating
+  policy (80% default, project-level, validate + dialog), recent-projects
+  menu, duplicate subtree (Ctrl+D), canvas right-click context menu.
+- Test count grew 47 -> 59; every cycle committed + PDF in artifacts/reports.
+
 ## Open threads
 - User returns 6am 2026-08-07; wants hourly self-eval iterations (ongoing).
 - Roadmap: undo/redo, temperature derating, CSV/BOM import, part library
