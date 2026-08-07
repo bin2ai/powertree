@@ -19,6 +19,7 @@ DEFAULTS = {
     "png_scale": 3.0,                # HD image export scale
     "pdf_include_images": True,
     "pdf_include_notes": True,
+    "si_digits": 3.0,                # significant digits in displayed values
 }
 
 

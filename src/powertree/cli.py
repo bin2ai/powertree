@@ -111,6 +111,18 @@ def cmd_search(args):
     return 0
 
 
+def cmd_bom(args):
+    parts = api.parts_list(api.load(args.project))
+    if _p(parts, args.json):
+        return 0
+    for part in parts:
+        print(f"  {part['part_number']:<20s} x{part['count']:<3d} "
+              f"[{part['refdes']}] {part['example_use']} "
+              f"({part['trees']})")
+    print(f"{len(parts)} unique part number(s)")
+    return 0
+
+
 def cmd_headroom(args):
     project = api.load(args.project)
     tree = api.find_tree(project, args.tree)
@@ -193,6 +205,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("nets", help="global net registry + conflicts")
     common(p)
     p.set_defaults(fn=cmd_nets)
+
+    p = sub.add_parser("bom", help="parts list aggregated by part number")
+    common(p)
+    p.set_defaults(fn=cmd_bom)
 
     p = sub.add_parser("headroom",
                        help="remaining budget per limited rail (worst case)")

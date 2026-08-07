@@ -99,7 +99,10 @@ class Converter(Element):
     kind: str = ElementKind.CONVERTER
     name: str = "Converter"
     topology: str = "buck"             # buck | boost | buck-boost | ldo | isolated | generic
-    efficiency_pct: float = 90.0
+    efficiency_pct: float = 90.0       # flat efficiency (used when no curve)
+    # optional efficiency-vs-load curve: [[i_out_A, eff_pct], ...] from the
+    # datasheet plot; linearly interpolated, clamped at the ends.
+    eff_points: list = field(default_factory=list)
     vout_min: float = 1.71
     vout_typ: float = 1.8
     vout_max: float = 1.89
@@ -110,6 +113,26 @@ class Converter(Element):
     @property
     def efficiency(self) -> float:
         return clamp(self.efficiency_pct, EFF_MIN, EFF_MAX) / 100.0
+
+    def efficiency_at(self, i_out: float) -> float:
+        """Efficiency (0..1) at a given output current: interpolates the
+        datasheet curve when present, else the flat efficiency_pct."""
+        points = sorted((float(i), float(e)) for i, e in (self.eff_points or [])
+                        if e and e > 0)
+        if not points:
+            return self.efficiency
+        if i_out <= points[0][0]:
+            eff = points[0][1]
+        elif i_out >= points[-1][0]:
+            eff = points[-1][1]
+        else:
+            eff = points[-1][1]
+            for (i0, e0), (i1, e1) in zip(points, points[1:]):
+                if i0 <= i_out <= i1:
+                    t = (i_out - i0) / max(i1 - i0, 1e-12)
+                    eff = e0 + t * (e1 - e0)
+                    break
+        return clamp(eff, EFF_MIN, EFF_MAX) / 100.0
 
 
 @dataclass

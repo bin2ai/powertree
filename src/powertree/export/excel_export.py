@@ -338,15 +338,36 @@ def _states_sheet(wb: Workbook, project: Project):
                     "solid", fgColor=SEV_FILLS["warn"])
 
 
+def _parts_sheet(wb: Workbook, project: Project):
+    from ..api import parts_list
+    parts = parts_list(project)
+    if not parts:
+        return
+    ws = wb.create_sheet("Parts")
+    _header(ws, 1, ["Part number", "Qty", "RefDes", "Kind(s)", "Used in",
+                    "Example use", "Datasheet"],
+            [20, 6, 16, 16, 24, 26, 24])
+    ws.freeze_panes = "A2"
+    for r, part in enumerate(parts, start=2):
+        vals = [part["part_number"], part["count"], part["refdes"],
+                part["kinds"], part["trees"], part["example_use"],
+                part["datasheet"]]
+        for col, val in enumerate(vals, start=1):
+            cell = ws.cell(row=r, column=col, value=val)
+            cell.border = BORDER
+            cell.font = Font(size=9)
+
+
 def export_excel_xlsx(project: Project, path: str) -> str:
     wb = Workbook()
     tree_results = {t.id: solve_tree(t) for t in project.trees}
     _overview_sheet(wb, project, tree_results)
-    used: set = {"overview", "warnings", "states"}
+    used: set = {"overview", "warnings", "states", "parts"}
     for tree in project.trees:
         _tree_sheet(wb, tree, tree_results[tree.id], used)
     if project.scenarios:
         _states_sheet(wb, project)
+    _parts_sheet(wb, project)
     _warnings_sheet(wb, project, tree_results)
     wb.save(path)
     return path

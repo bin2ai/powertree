@@ -129,7 +129,9 @@ def _solve_corner(tree: PowerTree, src: Source, corner: str, out: TreeResults) -
             elif el.kind == ElementKind.CONVERTER:
                 p_out = sum(solve_i(c) * max(v_in[c.id], V_FLOOR)
                             for c in tree.children_of(el.id))
-                i = p_out / (el.efficiency * v) + el.quiescent_ma / 1000.0
+                vout = max(_conv_vout(el, corner), V_FLOOR)
+                eff = el.efficiency_at(p_out / vout)
+                i = p_out / (eff * v) + el.quiescent_ma / 1000.0
             else:   # series element or (recursively) source
                 i = sum(solve_i(c) for c in tree.children_of(el.id))
             i_in[el.id] = i
@@ -179,7 +181,8 @@ def _solve_corner(tree: PowerTree, src: Source, corner: str, out: TreeResults) -
             res.v_out = _conv_vout(el, corner)
             res.p_out = sum(c.p_in for c in child_res)
             res.i_out = res.p_out / max(res.v_out, V_FLOOR)
-            res.p_in = res.p_out / el.efficiency + (el.quiescent_ma / 1000.0) * v
+            eff = el.efficiency_at(res.i_out)
+            res.p_in = res.p_out / eff + (el.quiescent_ma / 1000.0) * v
             res.i_in = res.p_in / v
             res.p_loss = res.p_in - res.p_out
         elif el.kind == ElementKind.SERIES:
@@ -341,6 +344,10 @@ def block_power(tree: PowerTree, results: TreeResults, block_id: str,
 # formatting helpers shared by UI and exports
 # ---------------------------------------------------------------------------
 
+# significant digits used by fmt_si — an app-settings knob (3..6)
+SI_DIGITS = 3
+
+
 def fmt_si(value: float, unit: str) -> str:
     """Engineering-notation formatter: 0.0123, 'A' -> '12.3 mA'."""
     if value is None:
@@ -351,5 +358,5 @@ def fmt_si(value: float, unit: str) -> str:
     for factor, prefix in ((1e6, "M"), (1e3, "k"), (1.0, ""), (1e-3, "m"),
                            (1e-6, "µ"), (1e-9, "n"), (1e-12, "p")):
         if av >= factor:
-            return f"{value / factor:.3g} {prefix}{unit}"
-    return f"{value:.3g} {unit}"
+            return f"{value / factor:.{SI_DIGITS}g} {prefix}{unit}"
+    return f"{value:.{SI_DIGITS}g} {unit}"

@@ -186,5 +186,79 @@ def test_html_report_export():
     assert len(doc) > 100_000                       # genuinely self-contained
 
 
+def test_converter_efficiency_curve_interpolation():
+    c = Converter(eff_points=[[0.1, 80.0], [1.0, 90.0]])
+    assert math.isclose(c.efficiency_at(0.05), 0.80)     # clamp low
+    assert math.isclose(c.efficiency_at(2.0), 0.90)      # clamp high
+    assert math.isclose(c.efficiency_at(0.55), 0.85)     # midpoint
+    flat = Converter(efficiency_pct=92.0)
+    assert math.isclose(flat.efficiency_at(123.0), 0.92)  # no curve = flat
+
+
+def test_solver_uses_efficiency_curve():
+    t = PowerTree("t")
+    src = t.add_element(Source(v_min=10, v_typ=10, v_max=10))
+    c = t.add_element(Converter(
+        efficiency_pct=50.0,                # would give p_in = 10 W if used
+        eff_points=[[0.5, 80.0], [1.5, 80.0]],
+        vout_min=5, vout_typ=5, vout_max=5), parent_id=src.id)
+    t.add_element(Load(load_type=LoadType.CURRENT, value_typ=1.0),
+                  parent_id=c.id)
+    r = solve_tree(t)
+    # curve says 80 % at 1 A: p_in = 5/0.8 = 6.25 W (not 10 W flat)
+    assert math.isclose(r.get(c.id, "typ").p_in, 6.25, rel_tol=1e-6)
+
+
+def test_efficiency_curve_roundtrip():
+    from powertree.model import serialization
+    p = Project("x")
+    t = p.new_tree("m")
+    src = t.add_element(Source())
+    t.add_element(Converter(eff_points=[[0.1, 85.0], [1.0, 92.5]]),
+                  parent_id=src.id)
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "c.ptproj")
+        serialization.save_project(p, path)
+        p2 = serialization.load_project(path)
+    c2 = next(e for e in p2.trees[0].elements.values()
+              if e.kind == "converter")
+    assert c2.eff_points == [[0.1, 85.0], [1.0, 92.5]]
+
+
+def test_parts_list_aggregates():
+    p = api.demo_project()
+    parts = api.parts_list(p)
+    numbers = {x["part_number"]: x for x in parts}
+    assert numbers["XC7Z020-1CLG484"]["count"] == 9      # one per Zynq rail
+    assert numbers["XC7Z020-1CLG484"]["refdes"] == "U1"
+    assert numbers["MT41K256M16"]["count"] == 4          # 2 loads x 2 chips
+    assert "U2, U3" == numbers["MT41K256M16"]["refdes"]
+
+
+def test_excel_parts_sheet():
+    from openpyxl import load_workbook
+    from powertree.export.excel_export import export_excel_xlsx
+    p = api.demo_project()
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "r.xlsx")
+        export_excel_xlsx(p, path)
+        wb = load_workbook(path)
+    assert "Parts" in wb.sheetnames
+    col_a = [wb["Parts"].cell(row=r, column=1).value for r in range(2, 12)]
+    assert "XC7Z020-1CLG484" in col_a
+
+
+def test_fmt_si_digits_knob():
+    from powertree.model import calc
+    old = calc.SI_DIGITS
+    try:
+        calc.SI_DIGITS = 5
+        assert calc.fmt_si(1.23456, "W") == "1.2346 W"
+        calc.SI_DIGITS = 3
+        assert calc.fmt_si(1.23456, "W") == "1.23 W"
+    finally:
+        calc.SI_DIGITS = old
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

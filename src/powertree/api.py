@@ -275,6 +275,40 @@ def nets_report(project: Project) -> dict:
         "conflicts": conflicts}
 
 
+def parts_list(project: Project) -> list:
+    """BOM-style aggregation: unique part numbers with usage count, ref
+    designators, element kinds and the trees they appear in."""
+    parts: dict = {}
+    for tree in project.trees:
+        for el in tree.elements.values():
+            key = el.part_number.strip() if el.part_number else ""
+            if not key:
+                continue
+            entry = parts.setdefault(key, {
+                "part_number": key, "count": 0, "refdes": set(),
+                "kinds": set(), "trees": set(), "names": set(),
+                "datasheet": ""})
+            entry["count"] += 1
+            if el.refdes:
+                entry["refdes"].add(el.refdes)
+            entry["kinds"].add(el.kind)
+            entry["trees"].add(tree.name)
+            entry["names"].add(el.name)
+            if el.datasheet and not entry["datasheet"]:
+                entry["datasheet"] = el.datasheet
+    out = []
+    for entry in sorted(parts.values(), key=lambda e: e["part_number"]):
+        out.append({
+            "part_number": entry["part_number"],
+            "count": entry["count"],
+            "refdes": ", ".join(sorted(entry["refdes"])),
+            "kinds": ", ".join(sorted(entry["kinds"])),
+            "trees": ", ".join(sorted(entry["trees"])),
+            "example_use": sorted(entry["names"])[0],
+            "datasheet": entry["datasheet"]})
+    return out
+
+
 def search(project: Project, query: str) -> list:
     q = query.strip().lower()
     hits = []

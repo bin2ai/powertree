@@ -261,9 +261,36 @@ class PropertyPanel(QScrollArea):
                 lambda v: self._commit(lambda x: setattr(el, "topology", x), v))
             form.addRow("Topology", topo)
             eff = self._spin(el.efficiency_pct, 1, 100, 2, "%", 1.0)
+            eff.setToolTip("Flat efficiency — used when no curve is entered "
+                           "below")
             eff.valueChanged.connect(
                 lambda v: self._commit(lambda x: setattr(el, "efficiency_pct", x), v))
             form.addRow("Efficiency", eff)
+            curve = QLineEdit(", ".join(f"{i:g}:{e:g}"
+                                        for i, e in (el.eff_points or [])))
+            curve.setPlaceholderText("e.g. 0.1:85, 0.5:91, 1:93, 3:90")
+            curve.setToolTip(
+                "Efficiency-vs-load curve from the datasheet plot: "
+                "Iout(A):eff(%) pairs, comma-separated. Linearly "
+                "interpolated at the solved output current; blank = flat "
+                "efficiency above.")
+            def _commit_curve(edit=curve, ele=el):
+                points = []
+                try:
+                    for chunk in edit.text().replace(";", ",").split(","):
+                        chunk = chunk.strip()
+                        if not chunk:
+                            continue
+                        i_s, e_s = chunk.split(":")
+                        points.append([float(i_s), float(e_s)])
+                except ValueError:
+                    edit.setStyleSheet("border-color: #f43f5e;")
+                    return
+                edit.setStyleSheet("")
+                self._commit(lambda x: setattr(ele, "eff_points", x),
+                             sorted(points))
+            curve.editingFinished.connect(_commit_curve)
+            form.addRow("η curve (I:η)", curve)
             for attr, label in (("vout_min", "Vout min"), ("vout_typ", "Vout typ"),
                                 ("vout_max", "Vout max")):
                 sb = self._spin(getattr(el, attr), 0, 10000, 4, "V")

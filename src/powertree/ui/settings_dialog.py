@@ -69,6 +69,14 @@ class SettingsDialog(QDialog):
                                   "exports (3.0 ≈ 300 dpi)")
         form.addRow("PNG export scale", self.png_scale)
 
+        self.si_digits = QDoubleSpinBox()
+        self.si_digits.setRange(3, 6)
+        self.si_digits.setDecimals(0)
+        self.si_digits.setValue(settings.get("si_digits"))
+        self.si_digits.setToolTip("Significant digits for every displayed "
+                                  "value (cards, list, status, reports)")
+        form.addRow("Significant digits", self.si_digits)
+
         self.pdf_images = QCheckBox("Embed flowchart images")
         self.pdf_images.setChecked(settings.get("pdf_include_images"))
         form.addRow("PDF report", self.pdf_images)
@@ -91,6 +99,7 @@ class SettingsDialog(QDialog):
         s.set("autofit_on_switch", self.autofit_check.isChecked())
         s.set("default_orientation", self.orient_combo.currentData())
         s.set("png_scale", self.png_scale.value())
+        s.set("si_digits", self.si_digits.value())
         s.set("pdf_include_images", self.pdf_images.isChecked())
         s.set("pdf_include_notes", self.pdf_notes.isChecked())
         self.accept()

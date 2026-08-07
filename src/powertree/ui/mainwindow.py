@@ -71,9 +71,34 @@ class MainWindow(QMainWindow):
         self._apply_settings(initial=True)
         self._rebuild_tree_list()
         self.refresh(full=True)
+        # crash-safety autosave every 3 minutes while dirty
+        from PySide6.QtCore import QTimer
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(180_000)
+        self._autosave_timer.timeout.connect(self._autosave)
+        self._autosave_timer.start()
+
+    def _autosave_path(self) -> str | None:
+        return f"{self.project.file_path}.autosave" \
+            if self.project.file_path else None
+
+    def _autosave(self):
+        path = self._autosave_path()
+        if not path or not self.dirty:
+            return
+        try:
+            payload = serialization.project_to_dict(self.project)
+            import json
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh)
+            self.statusBar().showMessage("Autosaved (recovery copy)", 2000)
+        except OSError:
+            pass
 
     def _apply_settings(self, initial: bool = False):
         s = self.settings
+        from ..model import calc
+        calc.SI_DIGITS = max(3, min(6, int(s.get("si_digits"))))
         Theme.set_style(s.get("canvas_style"))
         self.canvas.setBackgroundBrush(Theme.bg)
         self.canvas.detail_default = s.get("detail_default")
@@ -299,6 +324,8 @@ class MainWindow(QMainWindow):
             "Ctrl+T")
         add(m_project, "Global &nets…", self._show_nets, "Ctrl+G")
         m_project.addSeparator()
+        add(m_project, "&Validate project (all trees + states)…",
+            self._validate_project, "Ctrl+Shift+V")
         add(m_project, "&Derating policy…", self._set_derating)
         add(m_project, "Manage operating &states…", self._manage_states)
         add(m_project, "&Materialize current state as new tree",
@@ -931,6 +958,50 @@ class MainWindow(QMainWindow):
         self.canvas.select_element(dup.id)
         self.statusBar().showMessage(f"Duplicated as '{dup.name}'", 4000)
 
+    def _validate_project(self):
+        """CLI `validate` parity in the GUI: every tree, Base + every state,
+        net conflicts and the derating policy, in one dialog."""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QTreeWidget,
+                                       QTreeWidgetItem, QDialogButtonBox)
+        from ..api import validate
+        result = validate(self.project)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Project validation")
+        dlg.resize(860, 480)
+        lay = QVBoxLayout(dlg)
+        verdict = QLabel(
+            f"{'✅ PASS' if result['ok'] else '⛔ FAIL'} — "
+            f"{result['errors']} error(s), {result['warnings']} warning(s) "
+            f"across {len(self.project.trees)} tree(s), Base + "
+            f"{len(self.project.scenarios)} state(s), nets and the "
+            f"{self.project.derating_pct:g} % derating policy.")
+        verdict.setStyleSheet(
+            f"font-weight: 700; color: "
+            f"{'#10b981' if result['ok'] else '#f43f5e'}; font-size: 13px;")
+        lay.addWidget(verdict)
+        table = QTreeWidget()
+        table.setColumnCount(5)
+        table.setHeaderLabels(["Severity", "Tree", "State", "Element",
+                               "Message"])
+        table.setRootIsDecorated(False)
+        table.setAlternatingRowColors(True)
+        for i, w in enumerate([76, 130, 90, 150, 380]):
+            table.setColumnWidth(i, w)
+        from PySide6.QtGui import QBrush, QColor
+        for f in result["findings"]:
+            item = QTreeWidgetItem(table, [
+                f["severity"].upper(), f["tree"] or "project",
+                f.get("state", "Base"), f["element"] or "—", f["message"]])
+            color = QColor("#f43f5e") if f["severity"] == "error" \
+                else QColor("#fbbf24")
+            item.setForeground(0, QBrush(color))
+        lay.addWidget(table, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dlg.reject)
+        buttons.clicked.connect(dlg.accept)
+        lay.addWidget(buttons)
+        dlg.exec()
+
     def _set_derating(self):
         value, ok = QInputDialog.getDouble(
             self, "Derating policy",
@@ -962,8 +1033,20 @@ class MainWindow(QMainWindow):
     def _open_project_path(self, path: str):
         if not self._confirm_discard():
             return
+        load_path = path
+        autosave = f"{path}.autosave"
+        if os.path.exists(autosave) and os.path.exists(path) and \
+                os.path.getmtime(autosave) > os.path.getmtime(path):
+            if QMessageBox.question(
+                    self, "Recover autosave",
+                    "A newer autosaved recovery copy of this project exists "
+                    "(the app may have closed unexpectedly). Load the "
+                    "recovered version instead?") == \
+                    QMessageBox.StandardButton.Yes:
+                load_path = autosave
         try:
-            self.project = serialization.load_project(path)
+            self.project = serialization.load_project(load_path)
+            self.project.file_path = path
         except Exception as exc:
             QMessageBox.critical(self, "Open project",
                                  f"Could not open project:\n{exc}")
@@ -1086,6 +1169,12 @@ class MainWindow(QMainWindow):
                                  f"Could not save project:\n{exc}")
             return False
         self.settings.push_recent(path)
+        autosave = self._autosave_path()
+        if autosave and os.path.exists(autosave):
+            try:
+                os.remove(autosave)     # clean save supersedes recovery copy
+            except OSError:
+                pass
         self.dirty = False
         self._update_title()
         self.statusBar().showMessage(f"Saved {path}", 4000)

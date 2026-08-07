@@ -130,8 +130,12 @@ def element_lines(el: Element, results: TreeResults,
             pct = used / el.limit_value * 100 if el.limit_value else 0
             lines.append(f"limit {el.limit_value:g} {unit} · {pct:.0f} % used")
     elif el.kind == ElementKind.CONVERTER:
+        if el.eff_points:
+            eff_txt = f"η {el.efficiency_at(typ.i_out) * 100:.1f} %*"
+        else:
+            eff_txt = f"η {el.efficiency_pct:g} %"
         lines.append(f"{fmt_si(typ.v_in, 'V')} → {fmt_si(typ.v_out, 'V')}"
-                     f"  ·  η {el.efficiency_pct:g} %")
+                     f"  ·  {eff_txt}")
         lines.append(f"P in: {fmt_si(typ.p_in, 'W')} → out: {fmt_si(typ.p_out, 'W')}")
         lines.append(f"I out: {fmt_si(typ.i_out, 'A')} · loss {fmt_si(typ.p_loss, 'W')}")
         if el.limit_type != LimitType.NONE and el.limit_value > 0:
