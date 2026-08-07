@@ -83,7 +83,10 @@ def _load_value(load: Load, corner: str) -> float:
     return load.value_typ
 
 
-def solve_tree(tree: PowerTree) -> TreeResults:
+def solve_tree(tree: PowerTree, scenario: str | None = None) -> TreeResults:
+    if scenario:
+        from .scenarios import apply_scenario
+        tree = apply_scenario(tree, scenario)
     out = TreeResults()
     src = tree.source
     if src is None:
@@ -272,6 +275,45 @@ def _check_margins(tree: PowerTree, src: Source, out: TreeResults) -> None:
                                   f"'{el.name}' overvoltage in '{corner}' corner: "
                                   f"{res.v_in:.4g} V > max {el.v_in_max:.4g} V "
                                   f"(margin {el.v_in_max - res.v_in:+.4g} V)."))
+
+        # series element ratings: current, dissipation, input window
+        if el.kind == ElementKind.SERIES:
+            for corner in CORNERS:
+                res = out.get(el.id, corner)
+                if el.i_max is not None and el.i_max > 0:
+                    pct = res.i_in / el.i_max * 100
+                    if res.i_in > el.i_max:
+                        warn(Warning_("error", el.id, corner,
+                                      f"'{el.name}' current rating exceeded in "
+                                      f"'{corner}' corner: {res.i_in:.4g} A > "
+                                      f"{el.i_max:.4g} A ({pct:.0f} %)."))
+                    elif pct > 90:
+                        warn(Warning_("warn", el.id, corner,
+                                      f"'{el.name}' at {pct:.0f} % of its "
+                                      f"{el.i_max:.4g} A current rating in "
+                                      f"'{corner}' corner."))
+                if el.p_max is not None and el.p_max > 0:
+                    pct = res.p_loss / el.p_max * 100
+                    if res.p_loss > el.p_max:
+                        warn(Warning_("error", el.id, corner,
+                                      f"'{el.name}' dissipation rating exceeded "
+                                      f"in '{corner}' corner: "
+                                      f"{res.p_loss:.4g} W > {el.p_max:.4g} W."))
+                    elif pct > 90:
+                        warn(Warning_("warn", el.id, corner,
+                                      f"'{el.name}' at {pct:.0f} % of its "
+                                      f"{el.p_max:.4g} W dissipation rating in "
+                                      f"'{corner}' corner."))
+                if el.v_in_min is not None and res.v_in < el.v_in_min - V_EPS:
+                    warn(Warning_("error", el.id, corner,
+                                  f"'{el.name}' input undervoltage in "
+                                  f"'{corner}' corner: {res.v_in:.4g} V < min "
+                                  f"{el.v_in_min:.4g} V."))
+                if el.v_in_max is not None and res.v_in > el.v_in_max + V_EPS:
+                    warn(Warning_("error", el.id, corner,
+                                  f"'{el.name}' input overvoltage in "
+                                  f"'{corner}' corner: {res.v_in:.4g} V > max "
+                                  f"{el.v_in_max:.4g} V."))
 
         # collapsed rails behind series resistance
         for corner in CORNERS:

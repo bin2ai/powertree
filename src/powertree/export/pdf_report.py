@@ -76,7 +76,7 @@ def _hierarchy_rows(tree: PowerTree, results: TreeResults, styles):
 
 
 def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
-                    include_image: bool = True):
+                    include_image: bool = True, scenarios: list | None = None):
     flow = [Paragraph(_esc(tree.name), styles["PTH1"])]
     if tree.description:
         flow.append(Paragraph(_esc(tree.description), styles["PTBody"]))
@@ -98,6 +98,34 @@ def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
         f"{src.v_max:g} V — delivers {fmt_si(typ.p_out, 'W')} typ / "
         f"{fmt_si(mx.p_out, 'W')} max{limit}", styles["PTBody"]))
     flow.append(Spacer(1, 4))
+
+    # ---- per-operating-state comparison ----
+    if scenarios:
+        srows = [["Operating state", "P min", "P typ", "P max",
+                  "Findings"]]
+        for label, scenario in [("Base", None)] + [(s, s) for s in scenarios]:
+            sr = solve_tree(tree, scenario)
+            mn_ = sr.get(src.id, "min")
+            ty_ = sr.get(src.id, "typ")
+            mx_ = sr.get(src.id, "max")
+            errs = sum(1 for w in sr.warnings if w.severity == "error")
+            warns = sum(1 for w in sr.warnings if w.severity == "warn")
+            srows.append([
+                label if scenario is None else f"◈ {label}",
+                fmt_si(mn_.p_out, "W"), fmt_si(ty_.p_out, "W"),
+                fmt_si(mx_.p_out, "W"),
+                f"{errs} err / {warns} warn" if (errs or warns) else "clean"])
+        st = Table(srows, hAlign="LEFT",
+                   colWidths=[42 * mm, 22 * mm, 22 * mm, 22 * mm, 30 * mm])
+        st.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8ecf5")),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#c3ccdd")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        flow += [Paragraph("Operating states", styles["PTH3"]), st,
+                 Spacer(1, 6)]
 
     if include_image:
         try:
@@ -267,7 +295,8 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
     for tree in project.trees:
         flow.append(PageBreak())
         flow += _tree_flowables(tree, all_results[tree.id], styles,
-                                include_image=include_images)
+                                include_image=include_images,
+                                scenarios=project.scenarios)
 
     if include_notes and project.notes:
         flow.append(PageBreak())

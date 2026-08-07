@@ -64,6 +64,7 @@ def project_to_dict(project: Project) -> dict:
         "name": project.name,
         "description": project.description,
         "author": project.author,
+        "scenarios": list(project.scenarios),
         "trees": [_tree_to_dict(t) for t in project.trees],
         "notes": [dataclasses.asdict(n) for n in project.notes.values()],
     }
@@ -80,6 +81,7 @@ def project_from_dict(data: dict) -> Project:
     project = Project(data.get("name", "Project"))
     project.description = data.get("description", "")
     project.author = data.get("author", "")
+    project.scenarios = list(data.get("scenarios", []))
     for t_data in data.get("trees", []):
         project.trees.append(_tree_from_dict(t_data))
     note_fields = {f.name for f in dataclasses.fields(Note)}

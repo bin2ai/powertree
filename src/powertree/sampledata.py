@@ -159,6 +159,26 @@ def build_sample_project() -> Project:
         load_type=LoadType.CURRENT, value_typ=0.0000015, value_max=0.000003,
         v_in_min=1.65, v_in_max=3.6), parent_id=rser.id)
 
+    # ---- operating states --------------------------------------------------
+    project.scenarios = ["Low Power", "Performance"]
+
+    def _ovr(el, state, **fields):
+        el.scenario_overrides.setdefault(state, {}).update(fields)
+
+    zynq_block = next(b for b in tree.blocks.values() if "Zynq" in b.name)
+    for el in tree.block_members(zynq_block.id):
+        if isinstance(el, Load):
+            _ovr(el, "Low Power", value_typ=el.value_typ * 0.15,
+                 value_max=(el.value_max or el.value_typ) * 0.25)
+            _ovr(el, "Performance", value_typ=el.value_typ * 1.35,
+                 value_max=(el.value_max or el.value_typ) * 1.10)
+    for block_name in ("DDR3L x16 #1", "DDR3L x16 #2"):
+        blk = next(b for b in tree.blocks.values() if block_name in b.name)
+        for el in tree.block_members(blk.id):
+            if isinstance(el, Load):
+                _ovr(el, "Low Power", value_typ=el.value_typ * 0.30)
+                _ovr(el, "Performance", value_typ=el.value_typ * 1.25)
+
     # ---- notes vault -------------------------------------------------------
     root = project.add_note("Power Budget Sources")
     root.body_md = (

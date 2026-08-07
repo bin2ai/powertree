@@ -49,10 +49,11 @@ def cmd_info(args):
 
 
 def cmd_solve(args):
-    result = api.solve(api.load(args.project), args.tree)
+    result = api.solve(api.load(args.project), args.tree, args.state)
     if _p(result, args.json):
         return 0
-    print(f"Tree: {result['tree']} (converged: {result['converged']})")
+    print(f"Tree: {result['tree']} · state: {result['scenario']} "
+          f"(converged: {result['converged']})")
     for row in result["elements"]:
         op = row["operating_points"]["typ"]
         pad = "  " * row["depth"]
@@ -154,6 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("solve", help="solve a tree and print operating points")
     common(p)
     p.add_argument("--tree", help="tree name (default: first)")
+    p.add_argument("--state", help="operating state to apply (default: Base)")
     p.set_defaults(fn=cmd_solve)
 
     p = sub.add_parser("validate",

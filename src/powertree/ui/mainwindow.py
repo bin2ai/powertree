@@ -49,6 +49,7 @@ class MainWindow(QMainWindow):
             if self.project.trees else None
         self.results: TreeResults | None = None
         self.selected_element_id: str = ""
+        self.active_scenario: str | None = None
         self.dirty = False
 
         self.setWindowTitle(APP_NAME)
@@ -104,6 +105,9 @@ class MainWindow(QMainWindow):
         self.props.changed.connect(lambda: self.refresh())
         self.props.structureChanged.connect(lambda: self.refresh(full=True))
         self.props.openNotesRequested.connect(self._open_notes_for)
+        self.props.editDocsRequested.connect(self._edit_docs_for)
+        self.props.draftSaved.connect(self._commit_draft)
+        self.props.draftCancelled.connect(lambda: None)
         self.props_dock = QDockWidget("Properties", self)
         self.props_dock.setWidget(self.props)
         self.addDockWidget(Qt.RightDockWidgetArea, self.props_dock)
@@ -158,6 +162,16 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         act("🗑 Delete", "Delete the selected element (with its subtree)",
             self._delete_element, QKeySequence.Delete)
+        tb.addSeparator()
+
+        tb.addWidget(QLabel(" State: "))
+        self.state_combo = QComboBox()
+        self.state_combo.setToolTip(
+            "Operating state to solve: Base, or any named state with "
+            "per-element overrides (Project → Manage states…)")
+        self.state_combo.currentIndexChanged.connect(self._on_state_pick)
+        tb.addWidget(self.state_combo)
+        self._rebuild_state_combo()
         tb.addSeparator()
 
         tb.addWidget(QLabel(" Layout: "))
@@ -229,6 +243,10 @@ class MainWindow(QMainWindow):
         add(m_project, "Add device from &template…", self._add_from_template,
             "Ctrl+T")
         add(m_project, "Global &nets…", self._show_nets, "Ctrl+G")
+        m_project.addSeparator()
+        add(m_project, "Manage operating &states…", self._manage_states)
+        add(m_project, "&Materialize current state as new tree",
+            self._materialize_state)
 
         m_view = self.menuBar().addMenu("&View")
         for dock in (self.explorer_dock, self.props_dock, self.notes_dock,
@@ -247,12 +265,18 @@ class MainWindow(QMainWindow):
         """Recalculate the current tree bottom-up and repaint every view."""
         self._mark_dirty()
         tree = self.current_tree
-        self.results = solve_tree(tree) if tree else None
+        if self.active_scenario and self.active_scenario not in \
+                self.project.scenarios:
+            self.active_scenario = None
+            self._rebuild_state_combo()
+        self.results = solve_tree(tree, self.active_scenario) if tree else None
         self.canvas.rebuild(tree, self.results, keep_view=not full)
         self.list_view.rebuild(tree, self.results)
         self._rebuild_findings()
         self._update_status()
-        if self.selected_element_id and tree and \
+        if self.props.in_draft:
+            pass    # never clobber an in-progress draft form
+        elif self.selected_element_id and tree and \
                 self.selected_element_id in tree.elements:
             self.props.set_target(self.project, tree,
                                   tree.elements[self.selected_element_id])
@@ -292,8 +316,10 @@ class MainWindow(QMainWindow):
         warns = sum(1 for w in self.results.warnings if w.severity == "warn")
         health = "✅ all margins healthy" if not (errs or warns) else \
             f"⛔ {errs} violations · ⚠️ {warns} low margins"
+        state = f" · state: ◈ {self.active_scenario}" \
+            if self.active_scenario else ""
         self.status_label.setText(
-            f"{tree.name} — source power: {fmt_si(mn.p_out, 'W')} min / "
+            f"{tree.name}{state} — source power: {fmt_si(mn.p_out, 'W')} min / "
             f"{fmt_si(typ.p_out, 'W')} typ / {fmt_si(mx.p_out, 'W')} max · "
             f"{len(tree.elements)} elements · {health}")
 
@@ -371,6 +397,8 @@ class MainWindow(QMainWindow):
         return None
 
     def _add_element(self, kind: str):
+        """Open a DRAFT in the properties panel — the element is only added
+        to the tree when the user presses Save."""
         tree = self.current_tree
         if tree is None:
             QMessageBox.information(self, "Add element",
@@ -378,32 +406,47 @@ class MainWindow(QMainWindow):
             return
         classes = {ElementKind.SOURCE: Source, ElementKind.CONVERTER: Converter,
                    ElementKind.LOAD: Load, ElementKind.SERIES: SeriesElement}
+        parent = None
+        if kind == ElementKind.SOURCE:
+            if tree.source is not None:
+                QMessageBox.warning(
+                    self, "Add source",
+                    "This tree already has its source — a power tree has "
+                    "exactly one.")
+                return
+        else:
+            parent = self._selected_element()
+            if parent is not None and parent.kind == ElementKind.LOAD:
+                parent = tree.parent_of(parent)
+            if parent is None and tree.source is not None:
+                parent = tree.source
+            if parent is None:
+                QMessageBox.information(
+                    self, "Add element",
+                    "Start the tree with a ⊕ Source — every power tree has "
+                    "exactly one.")
+                return
+        names = {ElementKind.SOURCE: "New Source",
+                 ElementKind.CONVERTER: "New Converter",
+                 ElementKind.LOAD: "New Load",
+                 ElementKind.SERIES: "New Series R"}
+        draft = classes[kind](name=names[kind])
+        self.props_dock.show()
+        self.props_dock.raise_()
+        self.props.begin_draft(self.project, tree, draft,
+                               parent.id if parent else None)
+        self.statusBar().showMessage(
+            "Fill in the new element, then press Save in the Properties "
+            "panel to add it (or Cancel).", 6000)
+
+    def _commit_draft(self):
+        tree = self.tree_for_draft = self.current_tree
+        el = self.props.element
+        parent_id = self.props.draft_parent_id
+        if tree is None or el is None:
+            return
         try:
-            if kind == ElementKind.SOURCE:
-                el = tree.add_element(Source(name="New Source"))
-            else:
-                parent = self._selected_element()
-                if parent is not None and \
-                        parent.kind == ElementKind.LOAD:
-                    parent = tree.parent_of(parent)
-                if parent is None:
-                    candidates = [e for e in tree.elements.values()
-                                  if tree.can_parent(e)]
-                    if tree.source is not None and len(candidates) >= 1:
-                        parent = tree.source
-                if parent is None:
-                    QMessageBox.information(
-                        self, "Add element",
-                        "Select the parent first (a source, converter or "
-                        "series element)." if tree.source else
-                        "Start the tree with a ⊕ Source — every power tree "
-                        "has exactly one.")
-                    return
-                names = {ElementKind.CONVERTER: "New Converter",
-                         ElementKind.LOAD: "New Load",
-                         ElementKind.SERIES: "New Series R"}
-                el = tree.add_element(classes[kind](name=names[kind]),
-                                      parent_id=parent.id)
+            tree.add_element(el, parent_id=parent_id)
         except ValueError as exc:
             QMessageBox.warning(self, "Add element", str(exc))
             return
@@ -411,6 +454,7 @@ class MainWindow(QMainWindow):
         self._rebuild_tree_list()
         self.refresh(full=True)
         self.canvas.select_element(el.id)
+        self.statusBar().showMessage(f"Added '{el.name}'", 4000)
 
     def _delete_element(self):
         el = self._selected_element()
@@ -556,7 +600,122 @@ class MainWindow(QMainWindow):
         self.status_label.setText(
             f"Search '{text}': {len(matches)} match(es) in {tree.name}{extra}")
 
+    # ============================================================= states
+    def _rebuild_state_combo(self):
+        self.state_combo.blockSignals(True)
+        self.state_combo.clear()
+        self.state_combo.addItem("Base", None)
+        for s in self.project.scenarios:
+            self.state_combo.addItem(f"◈ {s}", s)
+        idx = self.state_combo.findData(self.active_scenario)
+        self.state_combo.setCurrentIndex(max(idx, 0))
+        self.state_combo.blockSignals(False)
+
+    def _on_state_pick(self, _idx: int):
+        self.active_scenario = self.state_combo.currentData()
+        self.refresh()
+        label = self.active_scenario or "Base"
+        self.statusBar().showMessage(f"Solving state: {label}", 3000)
+
+    def _manage_states(self):
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
+            QDialogButtonBox)
+        from ..model.scenarios import rename_scenario, delete_scenario
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Operating states")
+        lay = QVBoxLayout(dlg)
+        info = QLabel(
+            "States let elements override values per operating mode (sleep "
+            "current, boost efficiency, battery sag…). Edit overrides in an "
+            "element's Properties under 'Operating states'.")
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #98a3b8;")
+        lay.addWidget(info)
+        lst = QListWidget()
+        lst.addItems(self.project.scenarios)
+        lay.addWidget(lst, 1)
+        row = QHBoxLayout()
+
+        def add_state():
+            name, ok = QInputDialog.getText(dlg, "New state",
+                                            "State name (e.g. 'Low Power'):")
+            if ok and name and name not in self.project.scenarios:
+                self.project.scenarios.append(name)
+                lst.addItem(name)
+
+        def rename_state():
+            item = lst.currentItem()
+            if not item:
+                return
+            name, ok = QInputDialog.getText(dlg, "Rename state", "New name:",
+                                            text=item.text())
+            if ok and name and name != item.text():
+                rename_scenario(self.project, item.text(), name)
+                item.setText(name)
+
+        def delete_state():
+            item = lst.currentItem()
+            if not item:
+                return
+            if QMessageBox.question(
+                    dlg, "Delete state",
+                    f"Delete state '{item.text()}' and every element "
+                    "override stored for it?") == \
+                    QMessageBox.StandardButton.Yes:
+                delete_scenario(self.project, item.text())
+                lst.takeItem(lst.row(item))
+
+        for text, fn in (("＋ Add", add_state), ("Rename", rename_state),
+                         ("✕ Delete", delete_state)):
+            b = QPushButton(text)
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        row.addStretch(1)
+        lay.addLayout(row)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dlg.reject)
+        buttons.clicked.connect(dlg.accept)
+        lay.addWidget(buttons)
+        dlg.exec()
+        self._rebuild_state_combo()
+        self.refresh()
+
+    def _materialize_state(self):
+        from ..model.scenarios import materialize_scenario
+        if not self.active_scenario:
+            QMessageBox.information(
+                self, "Materialize state",
+                "Select a state (not Base) in the toolbar first — the "
+                "current state is baked into a new standalone tree.")
+            return
+        tree = self.current_tree
+        if tree is None:
+            return
+        baked = materialize_scenario(self.project, tree, self.active_scenario)
+        self.current_tree = baked
+        self.active_scenario = None
+        self._rebuild_state_combo()
+        self._rebuild_tree_list()
+        self.refresh(full=True)
+        self.canvas.fit()
+        self.statusBar().showMessage(
+            f"Created '{baked.name}' with the state baked in", 6000)
+
     # ============================================================== notes
+    def _edit_docs_for(self, element_id: str):
+        tree = self.current_tree
+        el = tree.elements.get(element_id) if tree else None
+        if el is None:
+            return
+        from .note_edit_dialog import NoteEditDialog
+        dlg = NoteEditDialog(self.project, el, self)
+        dlg.exec()
+        self.notes.rebuild()
+        self._mark_dirty()
+        if not self.props.in_draft:
+            self.props.set_target(self.project, tree, el)
+
     def _open_notes_for(self, element_id: str):
         self.notes_dock.show()
         self.notes_dock.raise_()
@@ -590,6 +749,8 @@ class MainWindow(QMainWindow):
         tree = self.project.new_tree("Power Tree 1")
         self.current_tree = tree
         self.selected_element_id = ""
+        self.active_scenario = None
+        self._rebuild_state_combo()
         self.notes.set_project(self.project)
         self._rebuild_tree_list()
         self.dirty = False
@@ -613,6 +774,8 @@ class MainWindow(QMainWindow):
             return
         self.current_tree = self.project.trees[0] if self.project.trees else None
         self.selected_element_id = ""
+        self.active_scenario = None
+        self._rebuild_state_combo()
         self.notes.set_project(self.project)
         self._rebuild_tree_list()
         self.refresh(full=True)

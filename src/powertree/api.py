@@ -96,6 +96,7 @@ def project_summary(project: Project) -> dict:
             "errors": errs, "warnings": warns})
     return {"name": project.name, "description": project.description,
             "file": project.file_path, "trees": trees,
+            "scenarios": list(project.scenarios),
             "notes": len(project.notes), "findings": total_findings}
 
 
@@ -125,9 +126,13 @@ def element_dict(tree: PowerTree, el, results=None) -> dict:
     return out
 
 
-def solve(project: Project, tree_name: str | None = None) -> dict:
+def solve(project: Project, tree_name: str | None = None,
+          scenario: str | None = None) -> dict:
     tree = find_tree(project, tree_name)
-    r = solve_tree(tree)
+    if scenario and scenario not in project.scenarios:
+        raise ValueError(f"Unknown state '{scenario}'. "
+                         f"Available: {project.scenarios}")
+    r = solve_tree(tree, scenario)
 
     def walk(el, depth):
         rows.append({**element_dict(tree, el, r), "depth": depth})
@@ -139,6 +144,7 @@ def solve(project: Project, tree_name: str | None = None) -> dict:
         walk(tree.source, 0)
     return {
         "tree": tree.name,
+        "scenario": scenario or "Base",
         "converged": r.converged,
         "elements": rows,
         "warnings": [{"severity": w.severity, "corner": w.corner,
@@ -147,16 +153,21 @@ def solve(project: Project, tree_name: str | None = None) -> dict:
 
 
 def validate(project: Project) -> dict:
-    """CI-style gate: all trees + net conflicts. ok=False on any violation."""
+    """CI-style gate: all trees, in Base AND every operating state, plus net
+    conflicts. ok=False on any violation."""
     findings = []
+    states = [None] + list(project.scenarios)
     for tree in project.trees:
-        r = solve_tree(tree)
-        for w in r.warnings:
-            el = tree.elements.get(w.element_id) if w.element_id else None
-            findings.append({"tree": tree.name, "severity": w.severity,
-                             "corner": w.corner,
-                             "element": el.name if el else None,
-                             "message": w.message})
+        for scenario in states:
+            r = solve_tree(tree, scenario)
+            for w in r.warnings:
+                el = tree.elements.get(w.element_id) if w.element_id else None
+                findings.append({"tree": tree.name,
+                                 "state": scenario or "Base",
+                                 "severity": w.severity,
+                                 "corner": w.corner,
+                                 "element": el.name if el else None,
+                                 "message": w.message})
     _nets, conflicts = collect_nets(project)
     for c in conflicts:
         findings.append({"tree": None, "severity": "error", "corner": "-",

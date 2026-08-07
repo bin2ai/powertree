@@ -47,7 +47,11 @@ def test_api_summary_and_solve():
 
 def test_api_validate_flags_demo():
     v = api.validate(api.demo_project())
-    assert v["ok"] is False and v["errors"] == 3
+    assert v["ok"] is False
+    base_errors = [f for f in v["findings"]
+                   if f["severity"] == "error" and f["state"] == "Base"]
+    assert len(base_errors) == 3           # deliberate VDDA violation x3 corners
+    assert v["errors"] >= 3                # states add their own findings
     json.dumps(v)
 
 
@@ -146,7 +150,7 @@ def test_mcp_tools_roundtrip(tmp_path):
     summary = call(srv.open_demo_project)
     assert summary["trees"]
     v = call(srv.validate)
-    assert v["errors"] == 3
+    assert v["errors"] >= 3
     r = call(srv.set_element_field, "FB3", "resistance_ohm", "0.05")
     assert r["tree_errors"] == 0
     out = tmp_path / "saved.ptproj"

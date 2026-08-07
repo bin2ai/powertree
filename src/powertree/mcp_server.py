@@ -81,10 +81,30 @@ def project_summary() -> dict:
 
 
 @mcp.tool()
-def solve_tree(tree: str = "") -> dict:
+def solve_tree(tree: str = "", state: str = "") -> dict:
     """Solve one tree bottom-up: per-element min/typ/max operating points
-    plus margin warnings. `tree` = name or id (default: first tree)."""
-    return api.solve(_project(), tree or None)
+    plus margin warnings. `tree` = name or id (default: first tree);
+    `state` = named operating state to apply (default: Base)."""
+    return api.solve(_project(), tree or None, state or None)
+
+
+@mcp.tool()
+def set_state_override(element: str, state: str, field: str, value: str,
+                       tree: str = "") -> dict:
+    """Set (or clear with empty value) a per-state override on an element,
+    e.g. a load's value_typ in 'Low Power'. Creates the state if new."""
+    project = _project()
+    t = api.find_tree(project, tree or None)
+    el = api.find_element(t, element)
+    if state not in project.scenarios:
+        project.scenarios.append(state)
+    bucket = el.scenario_overrides.setdefault(state, {})
+    if value == "":
+        bucket.pop(field, None)
+    else:
+        bucket[field] = float(value)
+    return {"element": el.name, "state": state, "overrides": bucket,
+            "project_states": project.scenarios}
 
 
 @mcp.tool()

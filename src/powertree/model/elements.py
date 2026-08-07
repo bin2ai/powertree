@@ -63,6 +63,8 @@ class Element:
     parent_id: Optional[str] = None
     block_id: Optional[str] = None
     note_ids: list = field(default_factory=list)   # linked documentation notes
+    # --- operating states: scenario name -> {field: value} overrides ---
+    scenario_overrides: dict = field(default_factory=dict)
     # --- UI state (persisted) ---
     collapsed: bool = False
     x: Optional[float] = None   # custom layout position
@@ -143,7 +145,12 @@ class SeriesElement(Element):
     series_type: str = SeriesType.RESISTOR
     resistance_ohm: float = 0.010       # DCR for ferrite beads / inductors
     inductance_uh: float = 0.0          # informational (DC solver ignores it)
-    rating: str = ""                    # e.g. fuse rating '2 A', bead '600R@100MHz'
+    rating: str = ""                    # free text, e.g. '600R@100MHz'
+    # optional electrical checks (margin analysis flags breaches):
+    v_in_min: Optional[float] = None    # allowed input-voltage window
+    v_in_max: Optional[float] = None
+    i_max: Optional[float] = None       # continuous current rating (A)
+    p_max: Optional[float] = None       # dissipation rating (W)
 
     @property
     def resistance(self) -> float:
@@ -280,6 +287,7 @@ class Project:
         self.author = ""
         self.trees: list[PowerTree] = []
         self.notes: dict[str, Note] = {}
+        self.scenarios: list[str] = []      # named operating states
         self.file_path: Optional[str] = None
 
     def new_tree(self, name: Optional[str] = None) -> PowerTree:

@@ -62,6 +62,12 @@ class NotesPanel(QWidget):
         bar.addStretch(1)
         layout.addLayout(bar)
 
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("🔍 Search notes (title + body)…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._apply_search)
+        layout.addWidget(self.search)
+
         split = QSplitter(Qt.Vertical)
         layout.addWidget(split, 1)
 
@@ -116,6 +122,27 @@ class NotesPanel(QWidget):
             self.tree_widget.expandAll()
         self.tree_widget.blockSignals(False)
         self._sync_editor()
+
+    def _apply_search(self, text: str):
+        """Hide notes not matching; keep ancestors of matches visible."""
+        text = text.strip().lower()
+        if not self.project:
+            return
+        if not text:
+            for item in self._items.values():
+                item.setHidden(False)
+            return
+        matches = {n.id for n in self.project.notes.values()
+                   if text in n.title.lower() or text in n.body_md.lower()}
+        keep = set()
+        for nid in matches:
+            note = self.project.notes.get(nid)
+            while note is not None:
+                keep.add(note.id)
+                note = self.project.notes.get(note.parent_id) \
+                    if note.parent_id else None
+        for nid, item in self._items.items():
+            item.setHidden(nid not in keep)
 
     def focus_element(self, element_id: str):
         """Select the first note linked to the element (or hint if none)."""
