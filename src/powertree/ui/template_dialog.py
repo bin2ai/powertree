@@ -14,10 +14,12 @@ from ..templates import all_templates, instantiate_template
 
 
 class TemplateDialog(QDialog):
-    def __init__(self, tree: PowerTree, parent=None):
+    def __init__(self, tree: PowerTree, parent=None,
+                 preselect_key: str | None = None):
         super().__init__(parent)
         self.tree = tree
         self.created: list = []
+        self._preselect_key = preselect_key
         self.setWindowTitle("Add device from template")
         self.setMinimumWidth(520)
         lay = QVBoxLayout(self)
@@ -31,6 +33,7 @@ class TemplateDialog(QDialog):
         cats: dict = {}
         for t in all_templates():
             cats.setdefault(t.category, []).append(t)
+        preselect_item = None
         for cat in sorted(cats):
             hdr = QListWidgetItem(f"— {cat} —")
             hdr.setFlags(Qt.NoItemFlags)
@@ -39,7 +42,11 @@ class TemplateDialog(QDialog):
                 item = QListWidgetItem("  " + t.name)
                 item.setData(Qt.UserRole, t)
                 self.list.addItem(item)
+                if preselect_key and t.key == preselect_key:
+                    preselect_item = item
         self.list.currentItemChanged.connect(self._on_pick)
+        if preselect_item is not None:
+            self.list.setCurrentItem(preselect_item)
         row.addWidget(self.list)
 
         right = QWidget()
@@ -127,4 +134,15 @@ class TemplateDialog(QDialog):
         except ValueError as exc:
             self.error.setText(str(exc))
             return
+        # library parts carry a saved block-designer style — apply it
+        from .. import library as _lib
+        for part in _lib.load_library():
+            if part.get("key") == self.template.key and \
+                    part.get("block_style") and self.created:
+                block = self.tree.blocks.get(self.created[0].block_id)
+                if block is not None:
+                    for f in _lib._STYLE_FIELDS:
+                        if f in part["block_style"]:
+                            setattr(block, f, part["block_style"][f])
+                break
         self.accept()

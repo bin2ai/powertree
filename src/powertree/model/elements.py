@@ -195,6 +195,15 @@ class Block:
     collapsed: bool = False
     x: Optional[float] = None   # custom-layout position of the summary node
     y: Optional[float] = None
+    # --- block designer: custom summary-node appearance -------------------
+    width: Optional[float] = None    # card size overrides (None = auto)
+    height: Optional[float] = None
+    # net name -> 'top' | 'bottom' | 'left' | 'right' (None/absent = auto)
+    pin_side: dict = field(default_factory=dict)
+    # 'in' / 'out' -> [net names in display order] (unknown nets appended)
+    pin_order: dict = field(default_factory=dict)
+    info_text: str = ""              # extra custom lines shown on the card
+    show_stats: bool = True          # show the P in / dissipation lines
 
 
 @dataclass

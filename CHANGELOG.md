@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.0 — 2026-08-07
+
+### Block Designer
+- Right-click a block (or its summary node) → *Design block*: place every
+  input/output pin on any card side (top/bottom/left/right), reorder pins,
+  set the card width/height, add custom info lines, hide/show the power
+  stats, and pick the accent color. Edges route to the designed pin
+  positions; everything persists in the project file and applies to all
+  exports.
+
+### Component library
+- Save any block — members, internal topology, electrical parameters and
+  the designer style — as a reusable part: right-click → *Save block to
+  library*, or manage everything in Project → *Component library*
+  (Ctrl+L): place parts into trees, import/export parts as .json files to
+  share, delete. Library parts appear alongside built-in templates
+  everywhere (template dialog, CLI `templates`, MCP). The library lives in
+  %APPDATA%/PowerTree/library.json (POWERTREE_LIBRARY overrides).
+
+### Undo/redo
+- (shipped in 0.5.0, now discoverable) Edit-menu entries show live step
+  counts and disable when empty; covered by tests for designer edits.
+
 ## 0.6.0 — 2026-08-07
 
 ### Collapsed block summary nodes

@@ -179,8 +179,24 @@ def _user_template_paths() -> list:
     return paths
 
 
+def template_from_dict(entry: dict) -> DeviceTemplate:
+    """Build a DeviceTemplate from a JSON template/library-part definition."""
+    items = [TemplateItem(i["kind"], i["name"], i["rail"],
+                          dict(i.get("params", {})))
+             for i in entry["items"]]
+    return DeviceTemplate(
+        key=entry["key"], name=entry["name"],
+        category=entry.get("category", "User"),
+        description=entry.get("description", ""),
+        rails=list(entry.get("rails", [])),
+        items=items,
+        part_number=entry.get("part_number", ""),
+        datasheet=entry.get("datasheet", ""))
+
+
 def load_user_templates() -> list:
-    """Parse user template JSON files into DeviceTemplate objects.
+    """Parse user template JSON files AND the component library into
+    DeviceTemplate objects.
 
     File format: a list of objects with keys key, name, category,
     description, part_number?, datasheet?, rails (list), items (list of
@@ -188,25 +204,16 @@ def load_user_templates() -> list:
     warning — they must never break the app."""
     import json
     import os
+    from .library import library_path
     out = []
-    for path in _user_template_paths():
+    for path in _user_template_paths() + [library_path()]:
         if not os.path.exists(path):
             continue
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
             for entry in data:
-                items = [TemplateItem(i["kind"], i["name"], i["rail"],
-                                      dict(i.get("params", {})))
-                         for i in entry["items"]]
-                out.append(DeviceTemplate(
-                    key=entry["key"], name=entry["name"],
-                    category=entry.get("category", "User"),
-                    description=entry.get("description", ""),
-                    rails=list(entry.get("rails", [])),
-                    items=items,
-                    part_number=entry.get("part_number", ""),
-                    datasheet=entry.get("datasheet", "")))
+                out.append(template_from_dict(entry))
         except (OSError, ValueError, KeyError, TypeError) as exc:
             print(f"PowerTree: skipping user templates {path}: {exc}")
     return out

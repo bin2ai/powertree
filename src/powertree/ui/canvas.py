@@ -413,26 +413,36 @@ class BlockSummaryItem(QGraphicsObject):
         painter.setPen(QPen(color.darker(115), 1.0, Qt.DashLine))
         painter.drawRoundedRect(rect.adjusted(3, 3, -3, -3), 8, 8)
 
-        # pins: input (top) and output (bottom) stubs with net labels
-        n_in = max(len(self.info.inputs), 1)
+        # pins on their designer-resolved sides, with net labels
         painter.setFont(QFont("Consolas", 6))
-        for i, (net, _src) in enumerate(self.info.inputs):
-            x = self.w * (i + 1) / (n_in + 1)
-            painter.setBrush(QBrush(Theme.edge))
-            painter.setPen(Qt.NoPen)
-            painter.drawRect(QRectF(x - 3.5, -1, 7, 8))
-            painter.setPen(QPen(Theme.edge_text))
-            painter.drawText(QRectF(x - 44, 8, 88, 9), Qt.AlignCenter,
-                             net[:16])
-        n_out = max(len(self.info.outputs), 1)
-        for i, (net, _mid) in enumerate(self.info.outputs):
-            x = self.w * (i + 1) / (n_out + 1)
-            painter.setBrush(QBrush(Theme.edge))
-            painter.setPen(Qt.NoPen)
-            painter.drawRect(QRectF(x - 3.5, self.h - 7, 7, 8))
-            painter.setPen(QPen(Theme.edge_text))
-            painter.drawText(QRectF(x - 44, self.h - 17, 88, 9),
-                             Qt.AlignCenter, net[:16])
+        for side, pins in (self.info.pins_by_side or {}).items():
+            n = max(len(pins), 1)
+            for i, (direction, net) in enumerate(pins):
+                frac = (i + 1) / (n + 1)
+                painter.setBrush(QBrush(Theme.edge))
+                painter.setPen(Qt.NoPen)
+                if side == "top":
+                    x = self.w * frac
+                    painter.drawRect(QRectF(x - 3.5, -1, 7, 8))
+                    lab = QRectF(x - 44, 8, 88, 9)
+                    align = Qt.AlignCenter
+                elif side == "bottom":
+                    x = self.w * frac
+                    painter.drawRect(QRectF(x - 3.5, self.h - 7, 7, 8))
+                    lab = QRectF(x - 44, self.h - 17, 88, 9)
+                    align = Qt.AlignCenter
+                elif side == "left":
+                    y = self.h * frac
+                    painter.drawRect(QRectF(-1, y - 3.5, 8, 7))
+                    lab = QRectF(9, y - 5, 84, 10)
+                    align = Qt.AlignLeft | Qt.AlignVCenter
+                else:   # right
+                    y = self.h * frac
+                    painter.drawRect(QRectF(self.w - 7, y - 3.5, 8, 7))
+                    lab = QRectF(self.w - 93, y - 5, 84, 10)
+                    align = Qt.AlignRight | Qt.AlignVCenter
+                painter.setPen(QPen(Theme.edge_text))
+                painter.drawText(lab, align, net[:16])
 
         # header
         painter.setFont(QFont("Segoe UI", 8, QFont.Bold))
@@ -453,18 +463,26 @@ class BlockSummaryItem(QGraphicsObject):
                                        self.w - 24))
         painter.setFont(QFont("Consolas", 8))
         s = self.stats
-        lines = [
-            f"P in {fmt_si(s['p_in'], 'W')} · diss "
-            f"{fmt_si(s['dissipation'], 'W')}",
-            f"pass-through {fmt_si(s['p_through'], 'W')}",
-        ]
+        lines = []
+        if self.block.show_stats:
+            lines += [
+                (f"P in {fmt_si(s['p_in'], 'W')} · diss "
+                 f"{fmt_si(s['dissipation'], 'W')}", True),
+                (f"pass-through {fmt_si(s['p_through'], 'W')}", False),
+            ]
+        for ln in (self.block.info_text or "").splitlines():
+            if ln.strip():
+                lines.append((ln.strip(), False))
         fm4 = QFontMetricsF(painter.font())
         y = 52.0
-        for i, line in enumerate(lines):
-            painter.setPen(QPen(Theme.text if i == 0 else Theme.text_dim))
+        for i, (line, bright) in enumerate(lines):
+            painter.setPen(QPen(Theme.text if bright or i == 0
+                                else Theme.text_dim))
             painter.drawText(QRectF(12, y, self.w - 24, 13), Qt.AlignVCenter,
                              fm4.elidedText(line, Qt.ElideRight, self.w - 24))
-            y += 14.5
+            y += 13.5
+            if y > self.h - 24:
+                break
 
         # warning badge from members
         if s["severity"] in ("error", "warn"):

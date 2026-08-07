@@ -327,8 +327,20 @@ class MainWindow(QMainWindow):
         add(m_file, "E&xit", self.close, "Alt+F4")
 
         m_edit = self.menuBar().addMenu("&Edit")
-        add(m_edit, "&Undo", self._undo, QKeySequence.Undo)
-        add(m_edit, "&Redo", self._redo, QKeySequence.Redo)
+        self.undo_action = add(m_edit, "&Undo", self._undo, QKeySequence.Undo)
+        self.redo_action = add(m_edit, "&Redo", self._redo, QKeySequence.Redo)
+
+        def _sync_undo_menu():
+            n_undo, n_redo = len(self._undo_stack), len(self._redo_stack)
+            self.undo_action.setEnabled(n_undo > 0)
+            self.undo_action.setText(
+                f"&Undo ({n_undo} step{'s' if n_undo != 1 else ''})"
+                if n_undo else "&Undo")
+            self.redo_action.setEnabled(n_redo > 0)
+            self.redo_action.setText(
+                f"&Redo ({n_redo} step{'s' if n_redo != 1 else ''})"
+                if n_redo else "&Redo")
+        m_edit.aboutToShow.connect(_sync_undo_menu)
         m_edit.addSeparator()
         add(m_edit, "Copy flowchart as &image", self._copy_canvas_image,
             "Ctrl+Shift+C")
@@ -342,6 +354,7 @@ class MainWindow(QMainWindow):
         m_project = self.menuBar().addMenu("&Project")
         add(m_project, "Add device from &template…", self._add_from_template,
             "Ctrl+T")
+        add(m_project, "Component &library…", self._open_library, "Ctrl+L")
         add(m_project, "Global &nets…", self._show_nets, "Ctrl+G")
         add(m_project, "Project &properties…", self._project_properties)
         m_project.addSeparator()
@@ -735,6 +748,45 @@ class MainWindow(QMainWindow):
         from .nets_dialog import NetsDialog
         NetsDialog(self.project, self).exec()
 
+    def _open_library(self):
+        from .library_dialog import LibraryDialog
+        dlg = LibraryDialog(self.current_tree, self)
+        dlg.exec()
+        if dlg.placed:
+            self.selected_element_id = dlg.placed[0].id
+            self._rebuild_tree_list()
+            self.refresh(full=True)
+            self.canvas.select_element(self.selected_element_id)
+            self.statusBar().showMessage(
+                f"Placed {len(dlg.placed)} elements from the library", 5000)
+
+    def _open_block_designer(self, block_id: str):
+        tree = self.current_tree
+        block = tree.blocks.get(block_id) if tree else None
+        if block is None:
+            return
+        from .block_designer import BlockDesignerDialog
+        if BlockDesignerDialog(tree, block, self).exec():
+            self.refresh(full=True)
+            self.statusBar().showMessage(
+                f"Block '{block.name}' design updated", 4000)
+
+    def _save_block_to_library(self, block_id: str):
+        tree = self.current_tree
+        block = tree.blocks.get(block_id) if tree else None
+        if block is None:
+            return
+        from .. import library
+        try:
+            part = library.block_to_part(tree, block.id)
+            library.add_part(part)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Save to library", str(exc))
+            return
+        self.statusBar().showMessage(
+            f"Saved '{part['name']}' ({len(part['items'])} elements) to the "
+            "component library — reuse it via Ctrl+T or Ctrl+L", 7000)
+
     def _on_collapse_toggle(self, element_id: str):
         tree = self.current_tree
         if tree and element_id in tree.elements:
@@ -1043,6 +1095,10 @@ class MainWindow(QMainWindow):
             if block is not None:
                 menu.addAction(f"⤢ Expand block '{block.name}'",
                                lambda: self._toggle_block_collapsed(block.id))
+                menu.addAction("✏ Design block (pins / size / info)…",
+                               lambda: self._open_block_designer(block.id))
+                menu.addAction("📚 Save block to library…",
+                               lambda: self._save_block_to_library(block.id))
 
                 def rename():
                     name, ok = QInputDialog.getText(
@@ -1088,6 +1144,10 @@ class MainWindow(QMainWindow):
             menu.addAction(
                 f"▣ Collapse block '{block.name}' to summary node",
                 lambda: self._toggle_block_collapsed(block.id, True))
+            menu.addAction("✏ Design block (pins / size / info)…",
+                           lambda: self._open_block_designer(block.id))
+            menu.addAction("📚 Save block to library…",
+                           lambda: self._save_block_to_library(block.id))
         # item-specific display settings
         item_menu = menu.addMenu("⚙ Item settings")
         detail_menu = item_menu.addMenu("Card detail")

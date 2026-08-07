@@ -55,8 +55,18 @@ def node_size(el: Element, detail: str = "standard") -> tuple:
     return NODE_W, h["node"]
 
 
-def block_node_size(n_in: int, n_out: int) -> tuple:
-    return max(240.0, 62.0 * max(n_in, n_out, 1) + 40.0), BLOCK_NODE_H
+def block_node_size(block, n_in: int, n_out: int,
+                    extra_lines: int = 0) -> tuple:
+    """Auto size (grows with pin count and custom info lines), overridable
+    per block from the Block Designer."""
+    w = max(240.0, 62.0 * max(n_in, n_out, 1) + 40.0)
+    h = BLOCK_NODE_H + 13.0 * extra_lines
+    if block is not None:
+        if block.width:
+            w = max(160.0, float(block.width))
+        if block.height:
+            h = max(90.0, float(block.height))
+    return w, h
 
 
 @dataclass
@@ -68,6 +78,43 @@ class BlockNodeInfo:
     #               outputs = [(net_label, member_element_id)]
     inputs: list = field(default_factory=list)
     outputs: list = field(default_factory=list)
+    # designer-resolved geometry:
+    #   pin_geom[(dir, key)] = (side, index_on_side, count_on_side)
+    #   pins_by_side[side] = [(dir, net)] in display order
+    pin_geom: dict = field(default_factory=dict)
+    pins_by_side: dict = field(default_factory=dict)
+
+
+def _resolve_pin_geometry(block, info: "BlockNodeInfo", horiz: bool) -> None:
+    """Assign each pin a card side (designer override or orientation default)
+    and an index among the pins sharing that side."""
+    default_in = "left" if horiz else "top"
+    default_out = "right" if horiz else "bottom"
+    by_side: dict = {}
+    ordered = []
+    for direction, pins, default in (("in", info.inputs, default_in),
+                                     ("out", info.outputs, default_out)):
+        for net, key in pins:
+            side = (block.pin_side or {}).get(net, default)
+            if side not in ("top", "bottom", "left", "right"):
+                side = default
+            ordered.append((direction, net, key, side))
+    for direction, net, key, side in ordered:
+        by_side.setdefault(side, []).append((direction, net, key))
+    info.pin_geom = {}
+    info.pins_by_side = {}
+    for side, pins in by_side.items():
+        info.pins_by_side[side] = [(d, n) for d, n, _k in pins]
+        for i, (direction, net, key) in enumerate(pins):
+            info.pin_geom[(direction, key)] = (side, i, len(pins))
+
+
+def _apply_pin_order(block, pins: list, direction: str) -> list:
+    """Reorder (net, key) pins by the designer's saved order; unknown nets
+    keep their sorted position at the end."""
+    wanted = (block.pin_order or {}).get(direction) or []
+    rank = {net: i for i, net in enumerate(wanted)}
+    return sorted(pins, key=lambda t: (rank.get(t[0], len(rank) + 1), t[0]))
 
 
 @dataclass
@@ -83,19 +130,23 @@ class LayoutResult:
     bounds: tuple = (0.0, 0.0, 0.0, 0.0)            # x, y, w, h
     details: dict = field(default_factory=dict)     # rid -> resolved detail
 
-    def pin_point(self, rid: str, side: str, index: int, horiz: bool) -> tuple:
-        """Coordinates where pin `index` of a block node meets the card edge.
-        side: 'in' | 'out'. TD: in=top, out=bottom. LR: in=left, out=right."""
+    def pin_point(self, rid: str, direction: str, key: str) -> tuple:
+        """Coordinates where a pin meets the card edge. direction: 'in'|'out';
+        key: feeding render id (in) or member element id (out). Honors the
+        Block Designer's per-pin side assignment."""
         cx, cy = self.positions[rid]
         w, h = self.sizes[rid]
         info = self.block_nodes[rid]
-        n = max(len(info.inputs if side == "in" else info.outputs), 1)
-        frac = (index + 1) / (n + 1)
-        if horiz:
-            x = cx - w / 2 if side == "in" else cx + w / 2
-            return (x, cy - h / 2 + h * frac)
-        y = cy - h / 2 if side == "in" else cy + h / 2
-        return (cx - w / 2 + w * frac, y)
+        side, i, n = info.pin_geom.get(
+            (direction, key), ("top" if direction == "in" else "bottom", 0, 1))
+        frac = (i + 1) / (n + 1)
+        if side == "top":
+            return (cx - w / 2 + w * frac, cy - h / 2)
+        if side == "bottom":
+            return (cx - w / 2 + w * frac, cy + h / 2)
+        if side == "left":
+            return (cx - w / 2, cy - h / 2 + h * frac)
+        return (cx + w / 2, cy - h / 2 + h * frac)
 
 
 def _net_of(tree: PowerTree, el: Element) -> str:
@@ -198,17 +249,24 @@ def compute_layout(tree: PowerTree, orientation: str = "TD",
                     continue
                 net = m.signal_name or _net_of(tree, m)
                 seen_out.setdefault(mid, net)
-        info.inputs = sorted(((net, pr) for pr, net in seen_in.items()),
-                             key=lambda t: t[0])
-        info.outputs = sorted(((net, mid) for mid, net in seen_out.items()),
-                              key=lambda t: t[0])
+        block = tree.blocks[info.block_id]
+        info.inputs = _apply_pin_order(
+            block, sorted(((net, pr) for pr, net in seen_in.items()),
+                          key=lambda t: t[0]), "in")
+        info.outputs = _apply_pin_order(
+            block, sorted(((net, mid) for mid, net in seen_out.items()),
+                          key=lambda t: t[0]), "out")
+        _resolve_pin_geometry(block, info, orientation == "LR")
 
     # ---- 5. sizes / details / hidden counts -------------------------------
     for rid in out.render_nodes:
         if rid.startswith(BLOCK_PREFIX):
             info = out.block_nodes[rid]
-            out.sizes[rid] = block_node_size(len(info.inputs),
-                                             len(info.outputs))
+            block = tree.blocks[info.block_id]
+            extra = len([ln for ln in (block.info_text or "").splitlines()
+                         if ln.strip()])
+            out.sizes[rid] = block_node_size(block, len(info.inputs),
+                                             len(info.outputs), extra)
             hidden = set(info.member_ids)
             for mid in info.member_ids:
                 hidden |= {d.id for d in tree.descendants_of(mid)
@@ -364,13 +422,11 @@ def _edge_endpoints(tree: PowerTree, out: LayoutResult, pr: str, cr: str,
                     p = tree.parent_of(p)
                 if member_id:
                     break
-        idx = 0
-        for i, (net, mid) in enumerate(info.outputs):
+        for net, mid in info.outputs:
             if mid == member_id:
-                idx = i
                 label = net
                 break
-        start = out.pin_point(pr, "out", idx, horiz)
+        start = out.pin_point(pr, "out", member_id)
     else:
         el = tree.elements[pr]
         if el.kind == ElementKind.CONVERTER:
@@ -383,14 +439,12 @@ def _edge_endpoints(tree: PowerTree, out: LayoutResult, pr: str, cr: str,
     # end: child entry
     if cr.startswith(BLOCK_PREFIX):
         cinfo = out.block_nodes[cr]
-        idx = 0
-        for i, (net, feeder) in enumerate(cinfo.inputs):
+        for net, feeder in cinfo.inputs:
             if feeder == pr:
-                idx = i
                 if not label:
                     label = net
                 break
-        end = out.pin_point(cr, "in", idx, horiz)
+        end = out.pin_point(cr, "in", pr)
     else:
         end = (cx - cw / 2, cy) if horiz else (cx, cy - ch / 2)
     return start, end, label
@@ -523,3 +577,24 @@ def block_rects(tree: PowerTree, out: LayoutResult, pad: float = 14.0) -> dict:
     """Backwards-compatible single-rect view (primary cluster only)."""
     return {bid: entries[0][0]
             for bid, entries in block_clusters(tree, out, pad).items()}
+
+
+def block_pins(tree: PowerTree, block_id: str) -> tuple:
+    """(input_nets, output_nets) the block's summary node exposes —
+    used by the Block Designer to list pins without a full layout pass."""
+    src = tree.source
+    members = [m for m in tree.block_members(block_id)
+               if src is None or m.id != src.id]
+    member_set = {m.id for m in members}
+    ins, outs = [], []
+    for m in members:
+        parent = tree.parent_of(m)
+        if parent is not None and parent.id not in member_set:
+            net = _net_of(tree, parent)
+            if net not in ins:
+                ins.append(net)
+        if any(c.id not in member_set for c in tree.children_of(m.id)):
+            net = m.signal_name or _net_of(tree, m)
+            if net not in outs:
+                outs.append(net)
+    return sorted(ins), sorted(outs)

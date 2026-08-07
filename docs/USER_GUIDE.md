@@ -48,6 +48,22 @@ the block and **output pins** for rails leaving it, so common vs unique
 paths stay explicit. Expand again via the card's ⤢ chip or right-click.
 Collapse state saves with the project and applies to every export.
 
+**Block Designer**: right-click a block or its summary node → *Design
+block…* to customize the collapsed card: put any pin on any side
+(top/bottom/left/right), reorder pins, set card width/height, add custom
+info lines, toggle the stats and pick the accent color.
+
+### Component library
+Save any block as a reusable part: right-click → *Save block to library*
+(captures members, internal topology, electrical parameters, efficiency
+curves and the designer style). Manage parts in **Project → Component
+library (Ctrl+L)**: place into the current tree, **import/export parts as
+.json files** to share with teammates, delete. Library parts show up next
+to the built-in templates in the template dialog (Ctrl+T), the CLI
+(`powertree templates`) and MCP. Storage:
+`%APPDATA%\PowerTree\library.json` (override with the `POWERTREE_LIBRARY`
+environment variable).
+
 ### Right-click settings
 Right-click anywhere on the canvas for **View settings** (legend, heat map,
 print style, layout, default card detail, collapse/expand all blocks);
