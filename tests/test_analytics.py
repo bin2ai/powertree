@@ -82,5 +82,52 @@ def test_export_csv_via_generic_export():
     assert len(rows) == 3
 
 
+def test_rail_headroom_math():
+    from powertree.model.elements import LimitType
+    t = PowerTree("t")
+    src = t.add_element(Source(v_min=10, v_typ=10, v_max=10,
+                               limit_type=LimitType.POWER, limit_value=10.0))
+    c = t.add_element(Converter(efficiency_pct=100, vout_min=5, vout_typ=5,
+                                vout_max=5, limit_type=LimitType.CURRENT,
+                                limit_value=2.0), parent_id=src.id)
+    t.add_element(Load(load_type=LoadType.CURRENT, value_typ=1.0),
+                  parent_id=c.id)
+    rows = api.rail_headroom(t)
+    assert len(rows) == 2
+    conv = next(r for r in rows if r["kind"] == "converter")
+    assert math.isclose(conv["used_worst"], 1.0, rel_tol=1e-6)
+    assert math.isclose(conv["headroom"], 1.0, rel_tol=1e-6)      # 1 A left
+    assert math.isclose(conv["extra_load_w"], 5.0, rel_tol=1e-6)  # at 5 V
+    src_row = next(r for r in rows if r["kind"] == "source")
+    assert math.isclose(src_row["used_worst"], 5.0, rel_tol=1e-6)
+    assert src_row["used_pct"] == 50.0
+    # sorted tightest-first
+    assert rows[0]["headroom_pct"] <= rows[-1]["headroom_pct"]
+
+
+def test_rail_headroom_demo_flags_core_buck_tight():
+    p = api.demo_project()
+    rows = api.rail_headroom(p.trees[0])
+    tightest = rows[0]
+    assert "1.0V Core Buck" in tightest["name"]
+    assert tightest["headroom_pct"] < 10
+
+
+def test_excel_states_sheet():
+    from openpyxl import load_workbook
+    from powertree.export.excel_export import export_excel_xlsx
+    p = api.demo_project()
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "r.xlsx")
+        export_excel_xlsx(p, path)
+        wb = load_workbook(path)
+    assert "States" in wb.sheetnames
+    ws = wb["States"]
+    labels = [ws.cell(row=r, column=2).value for r in range(2, 10)]
+    assert "Base" in labels and "Low Power" in labels \
+        and "Performance" in labels
+    assert "Efficiency (%)" in [c.value for c in wb["Overview"][5]]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

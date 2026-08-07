@@ -111,6 +111,25 @@ def cmd_search(args):
     return 0
 
 
+def cmd_headroom(args):
+    project = api.load(args.project)
+    tree = api.find_tree(project, args.tree)
+    rows = api.rail_headroom(tree)
+    if _p(rows, args.json):
+        return 0
+    if not rows:
+        print("No limited rails in this tree — set current/power limits on "
+              "sources and converters to budget them.")
+        return 0
+    print(f"Rail budget — {tree.name} (worst-case corner):")
+    for h in rows:
+        rail = f" [{h['rail']}]" if h["rail"] else ""
+        print(f"  {h['name']:<24s}{rail:<14s} limit {h['limit']:>8s}  "
+              f"used {h['used_pct']:5.1f} %  headroom "
+              f"{fmt_si(h['extra_load_w'], 'W'):>9s} of extra load")
+    return 0
+
+
 def cmd_templates(args):
     templates = api.list_templates()
     if _p(templates, args.json):
@@ -174,6 +193,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("nets", help="global net registry + conflicts")
     common(p)
     p.set_defaults(fn=cmd_nets)
+
+    p = sub.add_parser("headroom",
+                       help="remaining budget per limited rail (worst case)")
+    common(p)
+    p.add_argument("--tree", help="tree name (default: first)")
+    p.set_defaults(fn=cmd_headroom)
 
     p = sub.add_parser("search", help="find elements across all trees")
     common(p)

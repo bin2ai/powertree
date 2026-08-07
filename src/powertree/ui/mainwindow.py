@@ -8,6 +8,7 @@ re-solves the current tree bottom-up and repaints every view.
 from __future__ import annotations
 
 import os
+import time
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QIcon
@@ -53,6 +54,12 @@ class MainWindow(QMainWindow):
         self.selected_element_id: str = ""
         self.active_scenario: str | None = None
         self.dirty = False
+        # snapshot-based undo/redo (bursts of edits within 1.2 s coalesce)
+        self._undo_stack: list = []
+        self._redo_stack: list = []
+        self._last_snapshot = serialization.project_to_dict(self.project)
+        self._last_snap_time = 0.0
+        self._restoring = False
 
         self.setWindowTitle(APP_NAME)
         self.resize(1560, 940)
@@ -269,6 +276,17 @@ class MainWindow(QMainWindow):
         m_file.addSeparator()
         add(m_file, "E&xit", self.close, "Alt+F4")
 
+        m_edit = self.menuBar().addMenu("&Edit")
+        add(m_edit, "&Undo", self._undo, QKeySequence.Undo)
+        add(m_edit, "&Redo", self._redo, QKeySequence.Redo)
+        m_edit.addSeparator()
+        add(m_edit, "Copy flowchart as &image", self._copy_canvas_image,
+            "Ctrl+Shift+C")
+        add(m_edit, "Copy solved &table", self._copy_table,
+            "Ctrl+Shift+T")
+        m_edit.addSeparator()
+        add(m_edit, "&Delete selected element", self._delete_element)
+
         m_project = self.menuBar().addMenu("&Project")
         add(m_project, "Add device from &template…", self._add_from_template,
             "Ctrl+T")
@@ -370,6 +388,64 @@ class MainWindow(QMainWindow):
     def _mark_dirty(self):
         self.dirty = True
         self._update_title()
+        self._capture_snapshot()
+
+    # ------------------------------------------------------------ undo/redo
+    def _capture_snapshot(self):
+        if self._restoring:
+            return
+        snap = serialization.project_to_dict(self.project)
+        if snap == self._last_snapshot:
+            return
+        now = time.monotonic()
+        # push the pre-change state once per edit burst
+        if now - self._last_snap_time > 1.2 or not self._undo_stack:
+            self._undo_stack.append(self._last_snapshot)
+            del self._undo_stack[:-50]
+            self._redo_stack.clear()
+        self._last_snapshot = snap
+        self._last_snap_time = now
+
+    def _restore_snapshot(self, snap: dict):
+        self._restoring = True
+        try:
+            path = self.project.file_path
+            current_tree_id = self.current_tree.id if self.current_tree \
+                else None
+            self.project = serialization.project_from_dict(snap)
+            self.project.file_path = path
+            self.current_tree = self.project.tree_by_id(current_tree_id) \
+                or (self.project.trees[0] if self.project.trees else None)
+            self.selected_element_id = ""
+            self._last_snapshot = snap
+            self.notes.set_project(self.project)
+            self._rebuild_state_combo()
+            self._rebuild_tree_list()
+            self.refresh(full=True)
+        finally:
+            self._restoring = False
+
+    def _undo(self):
+        if not self._undo_stack:
+            self.statusBar().showMessage("Nothing to undo", 2500)
+            return
+        self._redo_stack.append(serialization.project_to_dict(self.project))
+        self._restore_snapshot(self._undo_stack.pop())
+        self.statusBar().showMessage(
+            f"Undo ({len(self._undo_stack)} steps left)", 2500)
+
+    def _redo(self):
+        if not self._redo_stack:
+            self.statusBar().showMessage("Nothing to redo", 2500)
+            return
+        self._undo_stack.append(serialization.project_to_dict(self.project))
+        self._restore_snapshot(self._redo_stack.pop())
+        self.statusBar().showMessage("Redo", 2500)
+
+    def _reset_undo(self):
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._last_snapshot = serialization.project_to_dict(self.project)
 
     def _update_title(self):
         star = " •" if self.dirty else ""
@@ -792,6 +868,57 @@ class MainWindow(QMainWindow):
             return
         self.notes.link_current_to(el.id, el.name)
 
+    # ============================================================ clipboard
+    def _copy_canvas_image(self):
+        """Copy the current tree's flowchart to the clipboard — paste
+        straight into slides, mails or wikis."""
+        tree = self.current_tree
+        if not tree or not self.results:
+            return
+        from .canvas import render_tree_image
+        img = render_tree_image(
+            tree, self.results, scale=2.0,
+            detail_default=self.settings.get("detail_default"),
+            heat=self.canvas.heat_mode)
+        QApplication.clipboard().setImage(img)
+        self.statusBar().showMessage(
+            "Flowchart image copied — paste into slides / mail / wiki", 4000)
+
+    def _copy_table(self):
+        """Copy the solved hierarchy as a tab-separated table (Excel-ready)."""
+        tree = self.current_tree
+        if not tree or not self.results or not tree.source:
+            return
+        r = self.results
+        p_src = r.get(tree.source.id, "typ").p_out
+        lines = ["\t".join(["Element", "Type", "RefDes", "Signal", "Block",
+                            "V in", "I in", "P in", "% of tree", "P out",
+                            "Loss", "P in (max)", "Status"])]
+
+        def emit(el, depth):
+            typ = r.get(el.id, "typ")
+            mx = r.get(el.id, "max")
+            block = tree.blocks.get(el.block_id) if el.block_id else None
+            warns = r.warnings_for(el.id)
+            status = "OK" if not warns else (
+                "VIOLATION" if r.worst_severity(el.id) == "error"
+                else "LOW MARGIN")
+            pct = f"{typ.p_in / p_src * 100:.1f}%" if p_src > 1e-12 else ""
+            lines.append("\t".join([
+                ("  " * depth) + el.name, el.kind, el.refdes, el.signal_name,
+                block.name if block else "",
+                fmt_si(typ.v_in, "V"), fmt_si(typ.i_in, "A"),
+                fmt_si(typ.p_in, "W"), pct, fmt_si(typ.p_out, "W"),
+                fmt_si(typ.p_loss, "W"), fmt_si(mx.p_in, "W"), status]))
+            for child in tree.children_of(el.id):
+                emit(child, depth + 1)
+
+        emit(tree.source, 0)
+        QApplication.clipboard().setText("\n".join(lines))
+        self.statusBar().showMessage(
+            f"Copied {len(lines) - 1} rows as a table — paste into Excel",
+            4000)
+
     # ========================================================= file actions
     def _confirm_discard(self) -> bool:
         if not self.dirty:
@@ -817,6 +944,7 @@ class MainWindow(QMainWindow):
         self._rebuild_tree_list()
         self.dirty = False
         self.refresh(full=True)
+        self._reset_undo()
         self.dirty = False
         self._update_title()
 
@@ -842,6 +970,7 @@ class MainWindow(QMainWindow):
         self._rebuild_tree_list()
         self.refresh(full=True)
         self.canvas.fit()
+        self._reset_undo()
         self.dirty = False
         self._update_title()
 

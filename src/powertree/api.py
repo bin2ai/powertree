@@ -110,6 +110,40 @@ def tree_metrics(tree: PowerTree, results=None, top_n: int = 5) -> dict:
             "top_consumers": top}
 
 
+def rail_headroom(tree: PowerTree, results=None) -> list:
+    """Remaining budget per limited rail: how much more load each source /
+    converter can accept before its limit is exceeded (worst-case corner).
+    The engineer's 'can I hang another 500 mW here?' answer."""
+    from .model.calc import solve_tree as _solve
+    from .model.elements import LimitType
+    r = results or _solve(tree)
+    out = []
+    for el in tree.elements.values():
+        limit_type = getattr(el, "limit_type", LimitType.NONE)
+        limit_value = getattr(el, "limit_value", 0.0)
+        if limit_type == LimitType.NONE or limit_value <= 0:
+            continue
+        mx = r.get(el.id, "max")
+        used = mx.i_out if limit_type == "current" else mx.p_out
+        headroom = limit_value - used
+        if limit_type == "current":
+            vout = mx.v_out if mx.v_out > 1e-9 else 1.0
+            extra_w = headroom * vout
+        else:
+            extra_w = headroom
+        out.append({
+            "name": el.name, "kind": el.kind, "refdes": el.refdes,
+            "rail": el.signal_name,
+            "limit": f"{limit_value:g} {'A' if limit_type == 'current' else 'W'}",
+            "used_worst": round(used, 9),
+            "used_pct": round(used / limit_value * 100.0, 1),
+            "headroom": round(headroom, 9),
+            "headroom_pct": round(headroom / limit_value * 100.0, 1),
+            "extra_load_w": round(extra_w, 9)})
+    out.sort(key=lambda x: x["headroom_pct"])
+    return out
+
+
 # ------------------------------------------------------------------ queries
 def project_summary(project: Project) -> dict:
     trees = []

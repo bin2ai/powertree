@@ -165,6 +165,39 @@ def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
     table.setStyle(TableStyle(style))
     flow += [table, Spacer(1, 6)]
 
+    # rail budget (remaining headroom per limited rail)
+    from ..api import rail_headroom
+    headroom = rail_headroom(tree, results)
+    if headroom:
+        flow.append(Paragraph("Rail budget — remaining headroom "
+                              "(worst-case corner)", styles["PTH3"]))
+        hrows = [["Rail / regulator", "Net", "Limit", "Used", "Headroom",
+                  "≈ extra load available"]]
+        for h in headroom:
+            hrows.append([
+                _esc(h["name"]), _esc(h["rail"]), h["limit"],
+                f"{h['used_pct']:g} %", f"{h['headroom_pct']:g} %",
+                fmt_si(h["extra_load_w"], "W")])
+        ht = Table(hrows, hAlign="LEFT",
+                   colWidths=[44 * mm, 26 * mm, 20 * mm, 18 * mm, 20 * mm,
+                              34 * mm])
+        hstyle = [
+            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8ecf5")),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#c3ccdd")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ]
+        for i, h in enumerate(headroom, start=1):
+            if h["headroom_pct"] < 0:
+                hstyle.append(("BACKGROUND", (0, i), (-1, i),
+                               SEV_FILL["error"]))
+            elif h["headroom_pct"] < 10:
+                hstyle.append(("BACKGROUND", (0, i), (-1, i),
+                               SEV_FILL["warn"]))
+        ht.setStyle(TableStyle(hstyle))
+        flow += [ht, Spacer(1, 6)]
+
     # block summary
     if tree.blocks:
         flow.append(Paragraph("Blocks", styles["PTH3"]))

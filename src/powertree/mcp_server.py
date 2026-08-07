@@ -122,6 +122,15 @@ def nets() -> dict:
 
 
 @mcp.tool()
+def rail_headroom(tree: str = "") -> list:
+    """Remaining budget per limited rail (worst-case corner): how much extra
+    load each source/converter can still accept before breaking its limit."""
+    project = _project()
+    t = api.find_tree(project, tree or None)
+    return api.rail_headroom(t)
+
+
+@mcp.tool()
 def search(query: str) -> list:
     """Find elements by name / refdes / signal / part number across trees."""
     return api.search(_project(), query)

@@ -304,13 +304,49 @@ def _warnings_sheet(wb: Workbook, project: Project, tree_results: dict):
         ws.cell(row=2, column=1, value="No findings — all margins healthy.")
 
 
+def _states_sheet(wb: Workbook, project: Project):
+    """Per-operating-state comparison: source power + findings per tree."""
+    ws = wb.create_sheet("States")
+    _header(ws, 1, ["Power tree", "State", "P min (W)", "P typ (W)",
+                    "P max (W)", "Errors", "Warnings"],
+            [28, 18, 12, 12, 12, 9, 10])
+    ws.freeze_panes = "A2"
+    r = 1
+    for tree in project.trees:
+        src = tree.source
+        if src is None:
+            continue
+        for label, scenario in [("Base", None)] + \
+                [(s, s) for s in project.scenarios]:
+            sr = solve_tree(tree, scenario)
+            errs = sum(1 for w in sr.warnings if w.severity == "error")
+            warns = sum(1 for w in sr.warnings if w.severity == "warn")
+            r += 1
+            vals = [tree.name, label,
+                    round(sr.get(src.id, "min").p_out, 6),
+                    round(sr.get(src.id, "typ").p_out, 6),
+                    round(sr.get(src.id, "max").p_out, 6), errs, warns]
+            for col, val in enumerate(vals, start=1):
+                cell = ws.cell(row=r, column=col, value=val)
+                cell.border = BORDER
+                cell.font = Font(size=9)
+            if errs:
+                ws.cell(row=r, column=6).fill = PatternFill(
+                    "solid", fgColor=SEV_FILLS["error"])
+            if warns:
+                ws.cell(row=r, column=7).fill = PatternFill(
+                    "solid", fgColor=SEV_FILLS["warn"])
+
+
 def export_excel_xlsx(project: Project, path: str) -> str:
     wb = Workbook()
     tree_results = {t.id: solve_tree(t) for t in project.trees}
     _overview_sheet(wb, project, tree_results)
-    used: set = {"overview", "warnings"}
+    used: set = {"overview", "warnings", "states"}
     for tree in project.trees:
         _tree_sheet(wb, tree, tree_results[tree.id], used)
+    if project.scenarios:
+        _states_sheet(wb, project)
     _warnings_sheet(wb, project, tree_results)
     wb.save(path)
     return path
