@@ -1,0 +1,10 @@
+{
+  "//": "Register PowerTree as an MCP server. Claude Code: copy this object into .mcp.json at your workspace root. Claude Desktop: merge into claude_desktop_config.json. Adjust paths to your install location.",
+  "mcpServers": {
+    "powertree": {
+      "command": "C:/code/tool_power_tree/.venv/Scripts/python.exe",
+      "args": ["-m", "powertree.mcp_server"],
+      "env": { "PYTHONPATH": "C:/code/tool_power_tree/src" }
+    }
+  }
+}

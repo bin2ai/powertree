@@ -41,12 +41,28 @@ flowchart, and report-grade exports.
 py -3.12 -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 
-:: start (or double-click PowerTree.bat)
-.venv\Scripts\python.exe main.py
-.venv\Scripts\python.exe main.py examples\DemoBoard.ptproj
+:: GUI — double-click PowerTree.bat, or:
+.venv\Scripts\python.exe main.py [examples\DemoBoard.ptproj]
 ```
 
-The app opens with a built-in demo board so every feature is visible immediately.
+The app opens with a built-in demo (a realistic Zynq-7000 carrier board) so every
+feature is visible immediately.
+
+## Four ways to use it
+
+| Mode | How |
+|---|---|
+| **GUI** | `PowerTree.bat` (no args) — flowchart, list, properties, notes, search |
+| **CLI** | `PowerTree.bat info\|solve\|validate\|nets\|search\|export\|templates\|demo …` — JSON output with `--json`; `validate` exits non-zero on violations (CI gate) |
+| **Excel** | macro-enabled report export, native outline collapse, live formulas |
+| **AI / MCP** | `python -m powertree.mcp_server` — 14 tools (open/solve/validate/edit/export); see `examples/mcp.json.example` for Claude Code / Desktop registration |
+
+```bat
+PowerTree info examples\DemoBoard.ptproj
+PowerTree validate examples\DemoBoard.ptproj      && echo margins clean
+PowerTree solve examples\DemoBoard.ptproj --json  > solved.json
+PowerTree export pdf examples\DemoBoard.ptproj -o report.pdf
+```
 
 ## Tests
 
