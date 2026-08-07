@@ -66,6 +66,20 @@ Running log. Keep current; this is printed into context at session start.
 - Tests grew 14 -> 69 (+14-step GUI smoke); every cycle committed + PDF in
   artifacts/reports (iteration_01..12).
 
+## Publication (2026-08-07)
+- History REWRITTEN with git-filter-repo before publishing: all commits
+  re-authored to bin2ai <bin2ai@users.noreply.github.com>, personal paths/
+  strings scrubbed (0 hits verified), .claude/.obsidian dropped from history
+  (still on disk, now gitignored). Pre-rewrite backup bundle in scratchpad.
+- Public repo: https://github.com/bin2ai/powertree (main + v0.1-baseline,
+  v0.5.0 tags). CI runs on push.
+- PyPI: name `powertree` free; pyproject/LICENSE(MIT)/CHANGELOG added; wheel
+  built + verified in clean venv (powertree / powertree-gui / powertree-mcp
+  entry points). publish.yml uses PyPI Trusted Publishing on v* tags —
+  ONE-TIME USER STEP: on pypi.org add pending publisher (project powertree,
+  owner bin2ai, repo powertree, workflow publish.yml, environment pypi),
+  then re-run the v0.5.0 publish workflow (gh run rerun) to go live.
+
 ## Open threads
 - User returns 6am 2026-08-07; wants hourly self-eval iterations (ongoing).
 - Roadmap: undo/redo, temperature derating, CSV/BOM import, part library
