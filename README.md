@@ -36,6 +36,15 @@ flowchart, and report-grade exports.
 
 ## Run it
 
+**Installed app** — build `dist\PowerTree-Setup.zip` with
+`installer\build_installer.ps1`, unzip, run `install.bat` (no admin needed:
+installs to `%LOCALAPPDATA%\PowerTree` with Start-Menu/Desktop shortcuts and
+an uninstaller; `installer\PowerTree.iss` builds a signed-style setup.exe when
+Inno Setup is present). The dist folder contains `PowerTree.exe` (GUI) and
+`powertree-cli.exe`.
+
+**From source:**
+
 ```bat
 :: one-time setup
 py -3.12 -m venv .venv
@@ -44,6 +53,10 @@ py -3.12 -m venv .venv
 :: GUI — double-click PowerTree.bat, or:
 .venv\Scripts\python.exe main.py [examples\DemoBoard.ptproj]
 ```
+
+**Onboarding**: press **F1** in the app (Quick start), or read
+[docs/QUICKSTART.md](docs/QUICKSTART.md) and
+[docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
 The app opens with a built-in demo (a realistic Zynq-7000 carrier board) so every
 feature is visible immediately.

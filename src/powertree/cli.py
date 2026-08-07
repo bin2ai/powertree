@@ -195,6 +195,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    # never crash on Unicode in legacy Windows consoles (cp1252 etc.)
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(errors="replace")
+            except (OSError, ValueError):
+                pass
     args = build_parser().parse_args(argv)
     try:
         return args.fn(args)

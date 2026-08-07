@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_QPA_FONTDIR: C:\Windows\Fonts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Unit + integration tests
+        run: pytest tests -v --tb=short
+      - name: CLI smoke (demo project must flag its deliberate findings)
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "src"
+          python -m powertree info examples/DemoBoard.ptproj
+          python -m powertree validate examples/DemoBoard.ptproj
+          if ($LASTEXITCODE -ne 1) { throw "validate should exit 1 on the demo (deliberate findings)" }
+          python -m powertree export pdf examples/DemoBoard.ptproj -o ci_report.pdf
+          if (-not (Test-Path ci_report.pdf)) { throw "PDF export failed" }
+          exit 0
+
+  build-installer:
+    runs-on: windows-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+      - name: Build PyInstaller app
+        run: pyinstaller installer/PowerTree.spec --noconfirm
+      - name: Package portable installer zip
+        shell: pwsh
+        run: installer/build_installer.ps1 -SkipPyInstaller
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PowerTree-windows
+          path: dist/PowerTree-Setup.zip

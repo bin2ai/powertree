@@ -289,6 +289,9 @@ class MainWindow(QMainWindow):
         add(m_view, "&Settings…", self._open_settings, "Ctrl+,")
 
         m_help = self.menuBar().addMenu("&Help")
+        add(m_help, "&Quick start", self._show_quickstart, "F1")
+        add(m_help, "&User guide (docs)", self._open_user_guide)
+        m_help.addSeparator()
         add(m_help, "About PowerTree", self._about)
 
     def _build_statusbar(self):
@@ -925,6 +928,52 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Notes export", f"Export failed:\n{exc}")
             return
         self.statusBar().showMessage(f"Notes exported: {written}", 6000)
+
+    def _docs_dir(self) -> str:
+        import sys
+        base = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) \
+            else os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))))
+        return os.path.join(base, "docs")
+
+    def _show_quickstart(self):
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, \
+            QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Quick start")
+        dlg.resize(720, 560)
+        lay = QVBoxLayout(dlg)
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        path = os.path.join(self._docs_dir(), "QUICKSTART.md")
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as fh:
+                browser.setMarkdown(fh.read())
+        else:
+            browser.setMarkdown(
+                "# Quick start\n\n1. **＋ Tree**, then **⊕ Source** — fill "
+                "the form, press **Save**.\n2. Add converters / series "
+                "elements / loads under it (drafts save the same way), or "
+                "**Ctrl+T** for whole-device templates.\n3. Loads carry an "
+                "allowed Vin window — violations appear as red badges and in "
+                "**Findings**.\n4. States: Project menu. Nets: **Ctrl+G**. "
+                "Search: **Ctrl+F**.\n5. Export PDF / Excel / PNG / notes "
+                "from the File menu.")
+        lay.addWidget(browser)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dlg.reject)
+        buttons.clicked.connect(dlg.accept)
+        lay.addWidget(buttons)
+        dlg.exec()
+
+    def _open_user_guide(self):
+        path = os.path.join(self._docs_dir(), "USER_GUIDE.md")
+        if os.path.exists(path):
+            os.startfile(path)      # noqa: S606 — local file, user-initiated
+        else:
+            QMessageBox.information(
+                self, "User guide",
+                "docs/USER_GUIDE.md was not found next to the application.")
 
     def _about(self):
         QMessageBox.about(
