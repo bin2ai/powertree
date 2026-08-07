@@ -191,6 +191,19 @@ class PropertyPanel(QScrollArea):
         desc.textChanged.connect(
             lambda: setattr(tree, "description", desc.toPlainText()))
         form.addRow("Description", desc)
+        detail_combo = QComboBox()
+        detail_combo.addItem("(inherit app setting)", "")
+        for level in ("minimal", "standard", "exhaustive"):
+            detail_combo.addItem(level, level)
+        idx = detail_combo.findData(tree.detail_default)
+        detail_combo.setCurrentIndex(max(idx, 0))
+        detail_combo.setToolTip("Default card detail for every element in "
+                                "this tree (elements can still override)")
+        detail_combo.currentIndexChanged.connect(
+            lambda _: self._commit(
+                lambda x: setattr(tree, "detail_default", x),
+                detail_combo.currentData() or ""))
+        form.addRow("Card detail", detail_combo)
 
         if tree.blocks:
             self._header("Blocks")
@@ -366,6 +379,22 @@ class PropertyPanel(QScrollArea):
                         lambda s=scenario, f=field_name, o=opt:
                         self._set_override(el, s, f, o.value()))
                     sform.addRow(FIELD_LABELS.get(field_name, field_name), opt)
+
+        # ---- per-element display detail (cascade: app -> tree -> element) --
+        detail_combo = QComboBox()
+        detail_combo.addItem("(inherit)", None)
+        for level in ("minimal", "standard", "exhaustive"):
+            detail_combo.addItem(level, level)
+        idx = detail_combo.findData(el.display_detail)
+        detail_combo.setCurrentIndex(max(idx, 0))
+        detail_combo.setToolTip(
+            "How much this card shows on the flowchart — overrides the "
+            "tree/app default for just this element")
+        detail_combo.currentIndexChanged.connect(
+            lambda _: self._commit(
+                lambda x: setattr(el, "display_detail", x),
+                detail_combo.currentData()))
+        form.addRow("Card detail", detail_combo)
 
         # ---- metadata ----
         self._header("Metadata")

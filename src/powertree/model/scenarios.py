@@ -35,6 +35,7 @@ def clone_tree(tree: PowerTree) -> PowerTree:
     new = PowerTree(tree.name, tree_id=tree.id)
     new.description = tree.description
     new.orientation = tree.orientation
+    new.detail_default = tree.detail_default
     new.elements = {eid: copy.deepcopy(el) for eid, el in tree.elements.items()}
     new.blocks = {bid: copy.deepcopy(b) for bid, b in tree.blocks.items()}
     return new

@@ -69,6 +69,8 @@ class Element:
     collapsed: bool = False
     x: Optional[float] = None   # custom layout position
     y: Optional[float] = None
+    # card verbosity: None = inherit tree/app; 'minimal'|'standard'|'exhaustive'
+    display_detail: Optional[str] = None
 
     def meta_dict(self) -> dict:
         return {
@@ -195,6 +197,7 @@ class PowerTree:
         self.name = name
         self.description = ""
         self.orientation = "TD"          # TD | LR | custom
+        self.detail_default = ""         # '' = inherit app setting
         self.elements: dict[str, Element] = {}
         self.blocks: dict[str, Block] = {}
 

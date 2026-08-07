@@ -31,7 +31,8 @@ from ..export.excel_export import export_excel_xlsm, export_excel_xlsx
 from ..export.image_export import export_tree_png
 from ..export.notes_export import (
     export_notes_markdown, export_notes_html, export_notes_pdf)
-from .canvas import PowerCanvas
+from ..settings import AppSettings, DETAIL_LEVELS
+from .canvas import PowerCanvas, Theme
 from .listview import TreeListView
 from .props import PropertyPanel
 from .notes import NotesPanel
@@ -44,6 +45,7 @@ SEARCH_FIELDS = ("name", "signal_name", "refdes", "part_number", "pins",
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.settings = AppSettings()
         self.project: Project = build_sample_project()
         self.current_tree: PowerTree | None = self.project.trees[0] \
             if self.project.trees else None
@@ -59,8 +61,22 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_menus()
         self._build_statusbar()
+        self._apply_settings(initial=True)
         self._rebuild_tree_list()
         self.refresh(full=True)
+
+    def _apply_settings(self, initial: bool = False):
+        s = self.settings
+        Theme.set_style(s.get("canvas_style"))
+        self.canvas.setBackgroundBrush(Theme.bg)
+        self.canvas.detail_default = s.get("detail_default")
+        self.canvas.heat_mode = s.get("heat_mode")
+        self.canvas.legend_visible = s.get("legend")
+        self.heat_action.setChecked(s.get("heat_mode"))
+        self.print_action.setChecked(s.get("canvas_style") == "print")
+        self.legend_action.setChecked(s.get("legend"))
+        if not initial:
+            self.refresh(full=True)
 
     # ================================================================ layout
     def _build_central(self):
@@ -192,6 +208,19 @@ class MainWindow(QMainWindow):
         self.legend_action.setChecked(True)
         self.legend_action.toggled.connect(self._on_legend)
         tb.addAction(self.legend_action)
+        self.heat_action = QAction("🔥 Heat", self)
+        self.heat_action.setCheckable(True)
+        self.heat_action.setToolTip(
+            "Tint every card by its power draw: blue = cold, red = hot")
+        self.heat_action.toggled.connect(self._on_heat)
+        tb.addAction(self.heat_action)
+        self.print_action = QAction("🖨 Print style", self)
+        self.print_action.setCheckable(True)
+        self.print_action.setToolTip(
+            "White, ink-friendly canvas — also used by image exports "
+            "while active")
+        self.print_action.toggled.connect(self._on_print_style)
+        tb.addAction(self.print_action)
         tb.addSeparator()
 
         from PySide6.QtWidgets import QSizePolicy
@@ -249,9 +278,15 @@ class MainWindow(QMainWindow):
             self._materialize_state)
 
         m_view = self.menuBar().addMenu("&View")
+        m_view.addAction(self.legend_action)
+        m_view.addAction(self.heat_action)
+        m_view.addAction(self.print_action)
+        m_view.addSeparator()
         for dock in (self.explorer_dock, self.props_dock, self.notes_dock,
                      self.findings_dock):
             m_view.addAction(dock.toggleViewAction())
+        m_view.addSeparator()
+        add(m_view, "&Settings…", self._open_settings, "Ctrl+,")
 
         m_help = self.menuBar().addMenu("&Help")
         add(m_help, "About PowerTree", self._about)
@@ -543,7 +578,25 @@ class MainWindow(QMainWindow):
 
     def _on_legend(self, checked: bool):
         self.canvas.legend_visible = checked
+        self.settings.set("legend", checked)
         self.canvas.viewport().update()
+
+    def _on_heat(self, checked: bool):
+        self.canvas.heat_mode = checked
+        self.settings.set("heat_mode", checked)
+        self.refresh()
+
+    def _on_print_style(self, checked: bool):
+        style = "print" if checked else "dark"
+        Theme.set_style(style)
+        self.settings.set("canvas_style", style)
+        self.canvas.setBackgroundBrush(Theme.bg)
+        self.refresh(full=True)
+
+    def _open_settings(self):
+        from .settings_dialog import SettingsDialog
+        if SettingsDialog(self.settings, self).exec():
+            self._apply_settings()
 
     # ========================================================== selection
     def _on_canvas_select(self, element_id: str):
@@ -812,7 +865,10 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            export_pdf_report(self.project, path)
+            export_pdf_report(
+                self.project, path,
+                include_notes=self.settings.get("pdf_include_notes"),
+                include_images=self.settings.get("pdf_include_images"))
         except Exception as exc:
             QMessageBox.critical(self, "PDF export", f"Export failed:\n{exc}")
             return
@@ -845,7 +901,10 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            export_tree_png(tree, path, scale=3.0)
+            export_tree_png(tree, path, scale=self.settings.get("png_scale"),
+                            style=Theme.style,
+                            detail_default=self.settings.get("detail_default"),
+                            heat=self.canvas.heat_mode)
         except Exception as exc:
             QMessageBox.critical(self, "Image export", f"Export failed:\n{exc}")
             return

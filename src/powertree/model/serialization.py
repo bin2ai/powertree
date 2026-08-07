@@ -38,6 +38,7 @@ def _tree_to_dict(tree: PowerTree) -> dict:
         "name": tree.name,
         "description": tree.description,
         "orientation": tree.orientation,
+        "detail_default": tree.detail_default,
         "elements": [_element_to_dict(e) for e in tree.elements.values()],
         "blocks": [dataclasses.asdict(b) for b in tree.blocks.values()],
     }
@@ -47,6 +48,7 @@ def _tree_from_dict(data: dict) -> PowerTree:
     tree = PowerTree(data.get("name", "Power Tree"), tree_id=data.get("id"))
     tree.description = data.get("description", "")
     tree.orientation = data.get("orientation", "TD")
+    tree.detail_default = data.get("detail_default", "")
     for el_data in data.get("elements", []):
         el = _element_from_dict(el_data)
         tree.elements[el.id] = el

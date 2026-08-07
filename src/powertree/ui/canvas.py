@@ -29,25 +29,29 @@ from ..model.calc import TreeResults, block_power, fmt_si
 from . import layout as L
 
 
+_PALETTES = {
+    "dark": dict(
+        bg="#101319", grid="#161b24", card="#1a2030", card_edge="#2c3650",
+        text="#e8ecf5", text_dim="#98a3b8", edge="#5b6b8c",
+        edge_text="#8fa0c0", select="#7c5cff", highlight="#22d3ee",
+        error="#f43f5e", warn="#fbbf24",
+        source="#f59e0b", converter="#3b82f6", load="#10b981",
+        series="#94a3b8", legend_bg=(16, 19, 25, 235)),
+    # printable: white background, ink-friendly colors
+    "print": dict(
+        bg="#ffffff", grid="#f0f2f7", card="#f7f8fc", card_edge="#aab4c8",
+        text="#16202e", text_dim="#5a6778", edge="#5a6778",
+        edge_text="#5a6778", select="#6d28d9", highlight="#0e7490",
+        error="#dc2626", warn="#b45309",
+        source="#b45309", converter="#1d4ed8", load="#047857",
+        series="#475569", legend_bg=(255, 255, 255, 235)),
+}
+
+
 class Theme:
-    bg = QColor("#101319")
-    grid = QColor("#161b24")
-    card = QColor("#1a2030")
-    card_edge = QColor("#2c3650")
-    text = QColor("#e8ecf5")
-    text_dim = QColor("#98a3b8")
-    edge = QColor("#5b6b8c")
-    edge_text = QColor("#8fa0c0")
-    select = QColor("#7c5cff")
-    highlight = QColor("#22d3ee")
-    error = QColor("#f43f5e")
-    warn = QColor("#fbbf24")
-    kinds = {
-        ElementKind.SOURCE: QColor("#f59e0b"),
-        ElementKind.CONVERTER: QColor("#3b82f6"),
-        ElementKind.LOAD: QColor("#10b981"),
-        ElementKind.SERIES: QColor("#94a3b8"),
-    }
+    """Mutable style singleton: Theme.set_style('dark'|'print') swaps every
+    color in place, so all drawing code just reads Theme.<attr>."""
+    style = "dark"
     kind_labels = {
         ElementKind.SOURCE: "SOURCE",
         ElementKind.CONVERTER: "CONVERTER",
@@ -55,16 +59,67 @@ class Theme:
         ElementKind.SERIES: "SERIES",
     }
 
+    @classmethod
+    def set_style(cls, name: str):
+        p = _PALETTES.get(name, _PALETTES["dark"])
+        cls.style = name if name in _PALETTES else "dark"
+        cls.bg = QColor(p["bg"])
+        cls.grid = QColor(p["grid"])
+        cls.card = QColor(p["card"])
+        cls.card_edge = QColor(p["card_edge"])
+        cls.text = QColor(p["text"])
+        cls.text_dim = QColor(p["text_dim"])
+        cls.edge = QColor(p["edge"])
+        cls.edge_text = QColor(p["edge_text"])
+        cls.select = QColor(p["select"])
+        cls.highlight = QColor(p["highlight"])
+        cls.error = QColor(p["error"])
+        cls.warn = QColor(p["warn"])
+        cls.kinds = {
+            ElementKind.SOURCE: QColor(p["source"]),
+            ElementKind.CONVERTER: QColor(p["converter"]),
+            ElementKind.LOAD: QColor(p["load"]),
+            ElementKind.SERIES: QColor(p["series"]),
+        }
+        cls.legend_bg = QColor(*p["legend_bg"])
+
+
+Theme.set_style("dark")
+
+
+def heat_color(fraction: float) -> QColor:
+    """0.0 (cold, blue) .. 1.0 (hot, red) with a yellow midpoint."""
+    f = max(0.0, min(1.0, fraction))
+    if f < 0.5:
+        t = f / 0.5          # blue -> amber
+        return QColor(int(59 + t * (245 - 59)), int(130 + t * (158 - 130)),
+                      int(246 + t * (11 - 246)))
+    t = (f - 0.5) / 0.5      # amber -> red
+    return QColor(int(245 + t * (239 - 245)), int(158 + t * (68 - 158)),
+                  int(11 + t * (68 - 11)))
+
 
 def _kind_color(kind: str) -> QColor:
     return Theme.kinds.get(kind, Theme.text_dim)
 
 
-def element_lines(el: Element, results: TreeResults) -> list:
-    """The stat lines shown on a card (also reused by list view tooltips)."""
+def element_lines(el: Element, results: TreeResults,
+                  detail: str = "standard") -> list:
+    """The stat lines shown on a card, scaled to the display-detail level."""
     typ = results.get(el.id, "typ")
     mx = results.get(el.id, "max")
     lines = []
+    if detail == "minimal":
+        if el.kind == ElementKind.SOURCE:
+            lines.append(f"P {fmt_si(typ.p_out, 'W')} · I {fmt_si(typ.i_out, 'A')}")
+        elif el.kind == ElementKind.CONVERTER:
+            lines.append(f"{fmt_si(typ.v_out, 'V')} · P {fmt_si(typ.p_out, 'W')}")
+        elif el.kind == ElementKind.LOAD:
+            lines.append(f"P {fmt_si(typ.p_in, 'W')} · {fmt_si(typ.v_in, 'V')}")
+        else:
+            lines.append(f"{fmt_si(el.resistance_ohm, 'Ω')} · "
+                         f"loss {fmt_si(typ.p_loss, 'W')}")
+        return lines
     if el.kind == ElementKind.SOURCE:
         lines.append(f"V: {el.v_min:g} / {el.v_typ:g} / {el.v_max:g} V")
         lines.append(f"P out: {fmt_si(typ.p_out, 'W')}  ·  I: {fmt_si(typ.i_out, 'A')}")
@@ -105,6 +160,30 @@ def element_lines(el: Element, results: TreeResults) -> list:
                      f" · loss {fmt_si(typ.p_loss, 'W')}")
         if getattr(el, "rating", ""):
             lines.append(f"rating: {el.rating}")
+
+    if detail == "exhaustive":
+        mn = results.get(el.id, "min")
+        lines.append(f"min corner: {fmt_si(mn.p_in, 'W')} · "
+                     f"{fmt_si(mn.v_in, 'V')} · {fmt_si(mn.i_in, 'A')}")
+        if el.kind == ElementKind.SERIES:
+            checks = []
+            if el.i_max is not None:
+                checks.append(f"Imax {el.i_max:g} A")
+            if el.p_max is not None:
+                checks.append(f"Pmax {el.p_max:g} W")
+            if el.v_in_min is not None or el.v_in_max is not None:
+                lo = f"{el.v_in_min:g}" if el.v_in_min is not None else "—"
+                hi = f"{el.v_in_max:g}" if el.v_in_max is not None else "—"
+                checks.append(f"Vin {lo}…{hi} V")
+            if checks:
+                lines.append(" · ".join(checks))
+        if el.part_number:
+            lines.append(f"PN: {el.part_number}")
+        if el.pins:
+            lines.append(f"pins: {el.pins}")
+        if el.scenario_overrides and any(el.scenario_overrides.values()):
+            states = [s for s, v in el.scenario_overrides.items() if v]
+            lines.append("◈ states: " + ", ".join(states))
     return lines
 
 
@@ -112,17 +191,19 @@ class NodeItem(QGraphicsObject):
     HEADER = 24.0
 
     def __init__(self, el: Element, tree: PowerTree, results: TreeResults,
-                 size: tuple, hidden_count: int, canvas: "PowerCanvas"):
+                 size: tuple, hidden_count: int, canvas: "PowerCanvas",
+                 detail: str = "standard", heat: float | None = None):
         super().__init__()
         self.el = el
         self.tree = tree
         self.canvas = canvas
         self.w, self.h = size
         self.hidden_count = hidden_count
-        self.lines = element_lines(el, results)
+        self.lines = element_lines(el, results, detail)
         self.severity = results.worst_severity(el.id)
         self.has_children = bool(tree.children_of(el.id))
         self.search_hit = False
+        self.heat = heat            # None = kind color; 0..1 = cold..hot tint
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
         self.setToolTip(self._tooltip())
@@ -147,7 +228,8 @@ class NodeItem(QGraphicsObject):
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None):
         painter.setRenderHint(QPainter.Antialiasing)
         rect = QRectF(0, 0, self.w, self.h)
-        color = _kind_color(self.el.kind)
+        color = heat_color(self.heat) if self.heat is not None \
+            else _kind_color(self.el.kind)
 
         # card body
         grad = QLinearGradient(0, 0, 0, self.h)
@@ -346,6 +428,8 @@ class PowerCanvas(QGraphicsView):
         self.nodes: dict[str, NodeItem] = {}
         self.edge_items: list = []
         self.legend_visible = True
+        self.detail_default = "standard"    # app-level display detail
+        self.heat_mode = False              # tint cards by power draw
         self._rebuilding = False
         self.scene_.selectionChanged.connect(self._on_selection)
 
@@ -364,9 +448,13 @@ class PowerCanvas(QGraphicsView):
             self._rebuilding = False
             return
 
-        lay = L.compute_layout(tree, tree.orientation)
+        lay = L.compute_layout(tree, tree.orientation,
+                               detail_default=self.detail_default)
         horiz = tree.orientation == "LR"
         movable = tree.orientation == "custom"
+
+        heat_map = _heat_fractions(tree, results, lay.visible) \
+            if self.heat_mode else {}
 
         # blocks behind everything — one outline per contiguous cluster
         for bid, clusters in L.block_clusters(tree, lay).items():
@@ -393,12 +481,20 @@ class PowerCanvas(QGraphicsView):
             edge_map[(pid, cid)] = item
         self._edge_map = edge_map
 
+        # junction dots on branched rails
+        for jx, jy in lay.junctions:
+            dot = self.scene_.addEllipse(jx - 3.2, jy - 3.2, 6.4, 6.4,
+                                         QPen(Qt.NoPen), QBrush(Theme.edge))
+            dot.setZValue(-4)
+
         # nodes
         for el_id in lay.visible:
             el = tree.elements[el_id]
             size = lay.sizes[el_id]
             node = NodeItem(el, tree, results, size,
-                            lay.hidden_counts.get(el_id, 0), self)
+                            lay.hidden_counts.get(el_id, 0), self,
+                            detail=lay.details.get(el_id, "standard"),
+                            heat=heat_map.get(el_id))
             cx, cy = lay.positions[el_id]
             node.setPos(cx - size[0] / 2, cy - size[1] / 2)
             node.setFlag(QGraphicsItem.ItemIsMovable, movable)
@@ -501,7 +597,7 @@ class PowerCanvas(QGraphicsView):
         w, line_h = 190, 18
         h = (len(entries) + len(extras)) * line_h + 34
         x, y = 12, self.viewport().height() - h - 12
-        painter.setBrush(QBrush(QColor(16, 19, 25, 235)))
+        painter.setBrush(QBrush(Theme.legend_bg))
         painter.setPen(QPen(Theme.card_edge, 1))
         painter.drawRoundedRect(QRectF(x, y, w, h), 8, 8)
         painter.setPen(QPen(Theme.text))
@@ -534,11 +630,29 @@ class PowerCanvas(QGraphicsView):
 
 def render_tree_image(tree: PowerTree, results: TreeResults,
                       orientation: str | None = None, scale: float = 3.0,
-                      with_legend: bool = True) -> QImage:
-    """Render a power tree to a high-resolution QImage (no window needed)."""
+                      with_legend: bool = True, style: str | None = None,
+                      detail_default: str = "standard",
+                      heat: bool = False) -> QImage:
+    """Render a power tree to a high-resolution QImage (no window needed).
+    style: None = current Theme; 'dark' | 'print' force a palette."""
+    prev_style = Theme.style
+    if style and style != prev_style:
+        Theme.set_style(style)
+    try:
+        return _render_tree_image(tree, results, orientation, scale,
+                                  with_legend, detail_default, heat)
+    finally:
+        if style and style != prev_style:
+            Theme.set_style(prev_style)
+
+
+def _render_tree_image(tree, results, orientation, scale, with_legend,
+                       detail_default, heat) -> QImage:
     scene = QGraphicsScene()
-    lay = L.compute_layout(tree, orientation or tree.orientation)
+    lay = L.compute_layout(tree, orientation or tree.orientation,
+                           detail_default=detail_default)
     canvas_stub = _StubCanvas()
+    heat_map = _heat_fractions(tree, results, lay.visible) if heat else {}
     for bid, clusters in L.block_clusters(tree, lay).items():
         block = tree.blocks[bid]
         p = block_power(tree, results, bid, "typ")
@@ -556,11 +670,17 @@ def render_tree_image(tree: PowerTree, results: TreeResults,
         elif parent.kind == ElementKind.SOURCE:
             label = parent.signal_name or ""
         scene.addItem(EdgeItem(pts, label, horiz))
+    for jx, jy in lay.junctions:
+        dot = scene.addEllipse(jx - 3.2, jy - 3.2, 6.4, 6.4,
+                               QPen(Qt.NoPen), QBrush(Theme.edge))
+        dot.setZValue(-4)
     for el_id in lay.visible:
         el = tree.elements[el_id]
         size = lay.sizes[el_id]
         node = NodeItem(el, tree, results, size,
-                        lay.hidden_counts.get(el_id, 0), canvas_stub)
+                        lay.hidden_counts.get(el_id, 0), canvas_stub,
+                        detail=lay.details.get(el_id, "standard"),
+                        heat=heat_map.get(el_id))
         cx, cy = lay.positions[el_id]
         node.setPos(cx - size[0] / 2, cy - size[1] / 2)
         scene.addItem(node)
@@ -585,6 +705,18 @@ def render_tree_image(tree: PowerTree, results: TreeResults,
         _draw_image_legend(painter, img, scale)
     painter.end()
     return img
+
+
+def _heat_fractions(tree: PowerTree, results: TreeResults,
+                    visible: set) -> dict:
+    """Element -> 0..1 hot/cold fraction of typ input power (sqrt-scaled so
+    mid-size loads stay distinguishable; source excluded — it is the total)."""
+    powers = {el_id: results.get(el_id, "typ").p_in for el_id in visible
+              if tree.elements[el_id].kind != ElementKind.SOURCE}
+    pmax = max(powers.values(), default=0.0)
+    if pmax <= 0:
+        return {}
+    return {el_id: (p / pmax) ** 0.4 for el_id, p in powers.items()}
 
 
 class _StubCanvas:

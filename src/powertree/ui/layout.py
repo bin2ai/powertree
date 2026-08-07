@@ -21,22 +21,27 @@ from dataclasses import dataclass, field
 from ..model.elements import PowerTree, Element, ElementKind
 
 NODE_W = 200.0
-NODE_H = 96.0
-SRC_H = 104.0
-SERIES_H = 72.0
 H_GAP = 46.0      # gap along breadth axis
 V_GAP = 78.0      # gap along depth axis
 BLOCK_PAD = 18.0  # extra clearance for nodes that belong to a block
 ATTACH_GAP = 18.0  # gap between a converter and its tucked companion loads
 CLUSTER_DIST = 90.0  # members closer than this merge into one block cluster
 
+# card heights per display-detail level
+_HEIGHTS = {
+    "minimal": {"node": 62.0, "src": 70.0, "series": 52.0},
+    "standard": {"node": 96.0, "src": 104.0, "series": 72.0},
+    "exhaustive": {"node": 138.0, "src": 146.0, "series": 106.0},
+}
 
-def node_size(el: Element) -> tuple:
+
+def node_size(el: Element, detail: str = "standard") -> tuple:
+    h = _HEIGHTS.get(detail, _HEIGHTS["standard"])
     if el.kind == ElementKind.SOURCE:
-        return NODE_W, SRC_H
+        return NODE_W, h["src"]
     if el.kind == ElementKind.SERIES:
-        return NODE_W * 0.88, SERIES_H
-    return NODE_W, NODE_H
+        return NODE_W * 0.88, h["series"]
+    return NODE_W, h["node"]
 
 
 @dataclass
@@ -44,9 +49,11 @@ class LayoutResult:
     positions: dict = field(default_factory=dict)   # id -> (cx, cy)
     sizes: dict = field(default_factory=dict)       # id -> (w, h)
     edges: list = field(default_factory=list)       # (parent_id, child_id, [pts])
+    junctions: list = field(default_factory=list)   # (x, y) branch-node dots
     visible: set = field(default_factory=set)
     hidden_counts: dict = field(default_factory=dict)  # id -> hidden descendants
     bounds: tuple = (0.0, 0.0, 0.0, 0.0)            # x, y, w, h
+    details: dict = field(default_factory=dict)     # id -> resolved detail
 
 
 def _companion_map(tree: PowerTree, visible: set) -> dict:
@@ -67,12 +74,15 @@ def _companion_map(tree: PowerTree, visible: set) -> dict:
 
 
 def compute_layout(tree: PowerTree, orientation: str = "TD",
-                   respect_custom: bool = True) -> LayoutResult:
+                   respect_custom: bool = True,
+                   detail_default: str = "standard") -> LayoutResult:
     """orientation: 'TD' (top-down), 'LR' (left-right) or 'custom'.
 
     In 'custom' mode nodes keep their stored (x, y) if present; nodes without
     a stored position fall back to an automatic TD layout so nothing stacks.
+    detail_default cascades app -> tree -> element (see settings.resolve_detail).
     """
+    from ..settings import resolve_detail
     out = LayoutResult()
     src = tree.source
     if src is None:
@@ -81,7 +91,9 @@ def compute_layout(tree: PowerTree, orientation: str = "TD",
     # visible set honouring collapse
     def collect(el: Element):
         out.visible.add(el.id)
-        out.sizes[el.id] = node_size(el)
+        detail = resolve_detail(detail_default, tree, el)
+        out.details[el.id] = detail
+        out.sizes[el.id] = node_size(el, detail)
         kids = tree.children_of(el.id)
         if el.collapsed:
             out.hidden_counts[el.id] = len(tree.descendants_of(el.id))
@@ -181,33 +193,57 @@ def _tidy_layout(tree: PowerTree, src: Element, base: str,
 
 
 def _route_edges(tree: PowerTree, base: str, out: LayoutResult) -> None:
-    """Orthogonal parent->child edges: exit, midway bus, entry (all 90 deg)."""
+    """Bus-style orthogonal routing: the parent's feed drops to a mid-level
+    bus, fans out horizontally, then enters each child — with junction dots
+    at every T so branched rails read like a schematic."""
     horiz = (base == "LR")
+    children_by_parent: dict = {}
     for el_id in out.visible:
         el = tree.elements[el_id]
         if el.parent_id and el.parent_id in out.visible:
-            px, py = out.positions[el.parent_id]
-            pw, ph = out.sizes[el.parent_id]
-            cx, cy = out.positions[el_id]
-            cw, ch = out.sizes[el_id]
+            children_by_parent.setdefault(el.parent_id, []).append(el_id)
+
+    for pid, kids in children_by_parent.items():
+        px, py = out.positions[pid]
+        pw, ph = out.sizes[pid]
+        # shared bus level: midway between parent exit and nearest child entry
+        if horiz:
+            start_d = px + pw / 2
+            entries = [out.positions[c][0] - out.sizes[c][0] / 2 for c in kids]
+            bus = (start_d + min(entries)) / 2
+        else:
+            start_d = py + ph / 2
+            entries = [out.positions[c][1] - out.sizes[c][1] / 2 for c in kids]
+            bus = (start_d + min(entries)) / 2
+        branch_points = []
+        for c in kids:
+            cx, cy = out.positions[c]
+            cw, ch = out.sizes[c]
             if horiz:
-                start = (px + pw / 2, py)
+                start = (start_d, py)
                 end = (cx - cw / 2, cy)
-                mid = (start[0] + end[0]) / 2
-                pts = [start, (mid, start[1]), (mid, end[1]), end]
+                pts = [start, (bus, py), (bus, cy), end]
+                branch_points.append((bus, cy))
             else:
-                start = (px, py + ph / 2)
+                start = (px, start_d)
                 end = (cx, cy - ch / 2)
-                mid = (start[1] + end[1]) / 2
-                pts = [start, (start[0], mid), (end[0], mid), end]
-            # drop degenerate middle points for straight runs
+                pts = [start, (px, bus), (cx, bus), end]
+                branch_points.append((cx, bus))
             clean = [pts[0]]
             for p in pts[1:]:
-                if abs(p[0] - clean[-1][0]) > 0.5 or abs(p[1] - clean[-1][1]) > 0.5:
+                if abs(p[0] - clean[-1][0]) > 0.5 or \
+                        abs(p[1] - clean[-1][1]) > 0.5:
                     clean.append(p)
             if len(clean) < 2:
                 clean = [start, end]
-            out.edges.append((el.parent_id, el_id, clean))
+            out.edges.append((pid, c, clean))
+        # junction dots only where the rail actually branches
+        if len(kids) > 1:
+            trunk = (bus, py) if horiz else (px, bus)
+            out.junctions.append(trunk)
+            for bp in branch_points:
+                if abs(bp[0] - trunk[0]) > 0.5 or abs(bp[1] - trunk[1]) > 0.5:
+                    out.junctions.append(bp)
 
 
 def _compute_bounds(out: LayoutResult) -> None:
