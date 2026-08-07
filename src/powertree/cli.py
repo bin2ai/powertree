@@ -116,7 +116,8 @@ def cmd_templates(args):
 
 def cmd_export(args):
     project = api.load(args.project)
-    written = api.export(project, args.kind, args.output, args.tree)
+    written = api.export(project, args.kind, args.output, args.tree,
+                         getattr(args, "style", None))
     print(f"Wrote {written}")
     return 0
 
@@ -182,6 +183,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("project")
     p.add_argument("-o", "--output", required=True)
     p.add_argument("--tree", help="tree name (png only; default: first)")
+    p.add_argument("--style", choices=["dark", "print"],
+                   help="flowchart style for pdf/png (print = white)")
     p.set_defaults(fn=cmd_export)
 
     p = sub.add_parser("demo", help="write the built-in demo project")

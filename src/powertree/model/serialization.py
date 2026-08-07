@@ -20,7 +20,11 @@ MAGIC = "powertree-project"
 
 
 def _element_to_dict(el: Element) -> dict:
-    return dataclasses.asdict(el)
+    data = dataclasses.asdict(el)
+    # drop empty per-state buckets the GUI may have created while browsing
+    overrides = data.get("scenario_overrides") or {}
+    data["scenario_overrides"] = {k: v for k, v in overrides.items() if v}
+    return data
 
 
 def _element_from_dict(data: dict) -> Element:

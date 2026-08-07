@@ -246,17 +246,17 @@ def set_element_field(project: Project, tree_name: str | None, element: str,
 
 # ------------------------------------------------------------------ exports
 def export(project: Project, kind: str, out_path: str,
-           tree_name: str | None = None) -> str:
+           tree_name: str | None = None, style: str | None = None) -> str:
     kind = kind.lower()
     if kind in ("png", "pdf"):
         _ensure_headless_qt()
     if kind == "pdf":
         from .export.pdf_report import export_pdf_report
-        return export_pdf_report(project, out_path)
+        return export_pdf_report(project, out_path, image_style=style)
     if kind == "png":
         from .export.image_export import export_tree_png
         tree = find_tree(project, tree_name)
-        return export_tree_png(tree, out_path, scale=3.0)
+        return export_tree_png(tree, out_path, scale=3.0, style=style)
     if kind == "xlsx":
         from .export.excel_export import export_excel_xlsx
         return export_excel_xlsx(project, out_path)

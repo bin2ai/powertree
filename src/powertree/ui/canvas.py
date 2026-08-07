@@ -481,11 +481,13 @@ class PowerCanvas(QGraphicsView):
             edge_map[(pid, cid)] = item
         self._edge_map = edge_map
 
-        # junction dots on branched rails
-        for jx, jy in lay.junctions:
-            dot = self.scene_.addEllipse(jx - 3.2, jy - 3.2, 6.4, 6.4,
-                                         QPen(Qt.NoPen), QBrush(Theme.edge))
-            dot.setZValue(-4)
+        # junction dots on branched rails (auto layouts only — in custom
+        # mode dragging would leave them stale)
+        if not movable:
+            for jx, jy in lay.junctions:
+                dot = self.scene_.addEllipse(jx - 3.2, jy - 3.2, 6.4, 6.4,
+                                             QPen(Qt.NoPen), QBrush(Theme.edge))
+                dot.setZValue(-4)
 
         # nodes
         for el_id in lay.visible:
@@ -589,9 +591,14 @@ class PowerCanvas(QGraphicsView):
             return
         painter.save()
         painter.resetTransform()
-        entries = [(Theme.kinds[k], Theme.kind_labels[k]) for k in
-                   (ElementKind.SOURCE, ElementKind.CONVERTER,
-                    ElementKind.LOAD, ElementKind.SERIES)]
+        if self.heat_mode:
+            entries = [(heat_color(0.05), "cold (low power)"),
+                       (heat_color(0.5), "medium"),
+                       (heat_color(1.0), "hot (highest power)")]
+        else:
+            entries = [(Theme.kinds[k], Theme.kind_labels[k]) for k in
+                       (ElementKind.SOURCE, ElementKind.CONVERTER,
+                        ElementKind.LOAD, ElementKind.SERIES)]
         extras = [(Theme.error, "limit / range violation"),
                   (Theme.warn, "margin < 10 %")]
         w, line_h = 190, 18

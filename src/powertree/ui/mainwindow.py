@@ -871,7 +871,8 @@ class MainWindow(QMainWindow):
             export_pdf_report(
                 self.project, path,
                 include_notes=self.settings.get("pdf_include_notes"),
-                include_images=self.settings.get("pdf_include_images"))
+                include_images=self.settings.get("pdf_include_images"),
+                image_style=Theme.style)
         except Exception as exc:
             QMessageBox.critical(self, "PDF export", f"Export failed:\n{exc}")
             return

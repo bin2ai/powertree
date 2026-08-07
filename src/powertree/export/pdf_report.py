@@ -76,7 +76,8 @@ def _hierarchy_rows(tree: PowerTree, results: TreeResults, styles):
 
 
 def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
-                    include_image: bool = True, scenarios: list | None = None):
+                    include_image: bool = True, scenarios: list | None = None,
+                    image_style: str | None = None):
     flow = [Paragraph(_esc(tree.name), styles["PTH1"])]
     if tree.description:
         flow.append(Paragraph(_esc(tree.description), styles["PTBody"]))
@@ -129,7 +130,7 @@ def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
 
     if include_image:
         try:
-            png = tree_png_bytes(tree, scale=2.5)
+            png = tree_png_bytes(tree, scale=2.5, style=image_style)
             img = RLImage(io.BytesIO(png))
             max_w, max_h = 174 * mm, 120 * mm
             ratio = min(max_w / img.drawWidth, max_h / img.drawHeight, 1.0)
@@ -215,7 +216,8 @@ def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
 
 
 def export_pdf_report(project: Project, path: str, include_notes: bool = True,
-                      include_images: bool = True) -> str:
+                      include_images: bool = True,
+                      image_style: str | None = None) -> str:
     styles = build_styles()
     doc = SimpleDocTemplate(
         path, pagesize=A4, topMargin=14 * mm, bottomMargin=14 * mm,
@@ -296,7 +298,8 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
         flow.append(PageBreak())
         flow += _tree_flowables(tree, all_results[tree.id], styles,
                                 include_image=include_images,
-                                scenarios=project.scenarios)
+                                scenarios=project.scenarios,
+                                image_style=image_style)
 
     if include_notes and project.notes:
         flow.append(PageBreak())

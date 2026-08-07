@@ -23,11 +23,12 @@ def export_tree_png(tree: PowerTree, path: str, orientation: str | None = None,
 
 
 def tree_png_bytes(tree: PowerTree, orientation: str | None = None,
-                   scale: float = 2.5) -> bytes:
+                   scale: float = 2.5, style: str | None = None) -> bytes:
     """PNG bytes of the rendered tree (for embedding into PDF/HTML reports)."""
     from PySide6.QtCore import QBuffer, QIODevice
     results = solve_tree(tree)
-    img = render_tree_image(tree, results, orientation=orientation, scale=scale)
+    img = render_tree_image(tree, results, orientation=orientation,
+                            scale=scale, style=style)
     buf = QBuffer()
     buf.open(QIODevice.WriteOnly)
     img.save(buf, "PNG")
