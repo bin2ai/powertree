@@ -47,7 +47,7 @@ Running log. Keep current; this is printed into context at session start.
 - Theme is a mutable singleton (set_style dark/print) so all drawing code
   reads Theme.<attr>.
 
-## Improvement loop (started ~4am 2026-08-07, hourly cron @ :52)
+## Improvement loop (hourly cron @ :52, session job f2afe364 — still armed)
 - Cycle 1 (it7): efficiency/loss/top-consumer analytics everywhere, PDF exec
   summary + health verdict, CSV export, %-of-tree column.
 - Cycle 2 (it8): rail headroom budgets (CLI/MCP/PDF), undo/redo (Ctrl+Z/Y),
@@ -55,7 +55,16 @@ Running log. Keep current; this is printed into context at session start.
 - Cycle 3 (it9): single-file HTML share report (export html), derating
   policy (80% default, project-level, validate + dialog), recent-projects
   menu, duplicate subtree (Ctrl+D), canvas right-click context menu.
-- Test count grew 47 -> 59; every cycle committed + PDF in artifacts/reports.
+- Cycle 4 (it10): converter efficiency-vs-load CURVES (interpolated in the
+  solver), BOM/parts list (Excel sheet + CLI bom), GUI Validate dialog
+  (Ctrl+Shift+V), autosave + crash recovery, significant-digits knob.
+- Cycle 5 (it11): finding WAIVERS w/ justification (audit trail through GUI/
+  PDF/validate/MCP), project-properties dialog, demo eta curve, installer
+  rebuilt (verified), USER_GUIDE refresh.
+- Cycle 6 (it12): export bundle (all formats one shot), validate --strict,
+  Ctrl+=/- zoom, first-run welcome, v0.5.0 version stamping.
+- Tests grew 14 -> 69 (+14-step GUI smoke); every cycle committed + PDF in
+  artifacts/reports (iteration_01..12).
 
 ## Open threads
 - User returns 6am 2026-08-07; wants hourly self-eval iterations (ongoing).
