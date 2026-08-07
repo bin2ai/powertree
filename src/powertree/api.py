@@ -464,6 +464,32 @@ def export_csv(project: Project, out_path: str,
     return out_path
 
 
+def export_bundle(project: Project, out_dir: str,
+                  style: str | None = None) -> list:
+    """One-shot deliverable set into a folder: PDF + HTML + Excel + CSV plus
+    an HD PNG per tree. Returns the written paths."""
+    import re as _re
+    os.makedirs(out_dir, exist_ok=True)
+    safe = _re.sub(r"[^\w\- ]", "_", project.name).strip() or "project"
+    written = []
+    written.append(export(project, "pdf",
+                          os.path.join(out_dir, f"{safe}_report.pdf"),
+                          style=style))
+    written.append(export(project, "html",
+                          os.path.join(out_dir, f"{safe}_report.html"),
+                          style=style))
+    written.append(export(project, "xlsx",
+                          os.path.join(out_dir, f"{safe}_report.xlsx")))
+    written.append(export(project, "csv",
+                          os.path.join(out_dir, f"{safe}_table.csv")))
+    for tree in project.trees:
+        tsafe = _re.sub(r"[^\w\- ]", "_", tree.name).strip() or tree.id
+        written.append(export(project, "png",
+                              os.path.join(out_dir, f"{tsafe}.png"),
+                              tree_name=tree.name, style=style))
+    return written
+
+
 # ------------------------------------------------------------------ exports
 def export(project: Project, kind: str, out_path: str,
            tree_name: str | None = None, style: str | None = None) -> str:

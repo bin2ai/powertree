@@ -48,9 +48,12 @@ def _e(text) -> str:
 
 def export_html_report(project: Project, path: str,
                        image_style: str | None = None) -> str:
+    from .. import __version__
+    author = f" · {_e(project.author)}" if project.author else ""
     parts = [f"<h1>{_e(project.name)} — Power Tree Report</h1>",
              f"<p class='meta'>Generated {date.today().isoformat()} by "
-             f"PowerTree · fully self-contained file</p>"]
+             f"PowerTree v{__version__}{author} · fully self-contained "
+             f"file</p>"]
     if project.description:
         parts.append(f"<p>{_e(project.description)}</p>")
 

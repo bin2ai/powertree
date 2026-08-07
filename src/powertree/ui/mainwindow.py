@@ -77,6 +77,11 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setInterval(180_000)
         self._autosave_timer.timeout.connect(self._autosave)
         self._autosave_timer.start()
+        # first-run onboarding
+        if not self.settings._qs.value("seen_quickstart", False, type=bool):
+            self.settings._qs.setValue("seen_quickstart", True)
+            QTimer.singleShot(
+                700, lambda: self._show_quickstart(modal=False))
 
     def _autosave_path(self) -> str | None:
         return f"{self.project.file_path}.autosave" \
@@ -235,6 +240,15 @@ class MainWindow(QMainWindow):
         self.orient_combo.currentIndexChanged.connect(self._on_orientation)
         tb.addWidget(self.orient_combo)
         act("⛶ Fit", "Fit the whole tree in the view", self.canvas.fit, "Ctrl+0")
+        zoom_in = QAction(self)
+        zoom_in.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
+        zoom_in.triggered.connect(lambda: self.canvas.scale(1.2, 1.2))
+        self.addAction(zoom_in)
+        zoom_out = QAction(self)
+        zoom_out.setShortcut(QKeySequence("Ctrl+-"))
+        zoom_out.triggered.connect(
+            lambda: self.canvas.scale(1 / 1.2, 1 / 1.2))
+        self.addAction(zoom_out)
         act("▸ Collapse", "Collapse every converter / series branch",
             lambda: self._set_all_collapsed(True))
         act("▾ Expand", "Expand everything",
@@ -302,6 +316,8 @@ class MainWindow(QMainWindow):
         add(m_export, "Excel macro-enabled report (.xlsm)…", self._export_excel)
         add(m_export, "Flowchart image (HD PNG)…", self._export_png)
         add(m_export, "Solved tree table (CSV)…", self._export_csv)
+        m_export.addSeparator()
+        add(m_export, "Everything (bundle to folder)…", self._export_bundle)
         m_export.addSeparator()
         add(m_export, "Notes → Markdown…", lambda: self._export_notes("md"))
         add(m_export, "Notes → HTML…", lambda: self._export_notes("html"))
@@ -532,10 +548,11 @@ class MainWindow(QMainWindow):
         self._last_snapshot = serialization.project_to_dict(self.project)
 
     def _update_title(self):
+        from .. import __version__
         star = " •" if self.dirty else ""
         path = f" — {os.path.basename(self.project.file_path)}" \
-            if self.project.file_path else ""
-        self.setWindowTitle(f"{APP_NAME}{path}{star}")
+            if self.project.file_path else f" — {self.project.name}"
+        self.setWindowTitle(f"{APP_NAME} {__version__}{path}{star}")
 
     # ====================================================== tree management
     def _rebuild_tree_list(self):
@@ -1326,6 +1343,22 @@ class MainWindow(QMainWindow):
             f"Shareable HTML report written: {path} — one file, opens in any "
             "browser", 6000)
 
+    def _export_bundle(self):
+        out_dir = QFileDialog.getExistingDirectory(
+            self, "Export everything (PDF + HTML + Excel + CSV + PNGs) into…")
+        if not out_dir:
+            return
+        from ..api import export_bundle
+        try:
+            written = export_bundle(self.project, out_dir, style=Theme.style)
+        except Exception as exc:
+            QMessageBox.critical(self, "Bundle export",
+                                 f"Export failed:\n{exc}")
+            return
+        self.statusBar().showMessage(
+            f"Bundle written: {len(written)} files in {out_dir}", 8000)
+        os.startfile(out_dir)
+
     def _export_csv(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Export solved table (CSV)",
@@ -1363,7 +1396,7 @@ class MainWindow(QMainWindow):
                 os.path.dirname(os.path.abspath(__file__)))))
         return os.path.join(base, "docs")
 
-    def _show_quickstart(self):
+    def _show_quickstart(self, modal: bool = True):
         from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, \
             QDialogButtonBox
         dlg = QDialog(self)
@@ -1391,7 +1424,11 @@ class MainWindow(QMainWindow):
         buttons.rejected.connect(dlg.reject)
         buttons.clicked.connect(dlg.accept)
         lay.addWidget(buttons)
-        dlg.exec()
+        if modal:
+            dlg.exec()
+        else:               # first-run welcome: never block startup
+            dlg.setAttribute(Qt.WA_DeleteOnClose)
+            dlg.show()
 
     def _open_user_guide(self):
         path = os.path.join(self._docs_dir(), "USER_GUIDE.md")

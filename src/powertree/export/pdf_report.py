@@ -274,9 +274,11 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
             Spacer(1, 6)]
     if project.description:
         flow.append(Paragraph(_esc(project.description), styles["PTBody"]))
+    from .. import __version__
     author = f" · {project.author}" if project.author else ""
-    flow.append(Paragraph(f"Generated {date.today().isoformat()} by PowerTree"
-                          f"{author}", styles["PTMeta"]))
+    flow.append(Paragraph(f"Generated {date.today().isoformat()} by "
+                          f"PowerTree v{__version__}{author}",
+                          styles["PTMeta"]))
     flow.append(Spacer(1, 10))
     from ..api import tree_metrics
     orows = [["Power tree", "Source", "P typ", "P max", "η end-to-end",

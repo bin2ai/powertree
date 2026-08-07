@@ -75,15 +75,19 @@ def cmd_solve(args):
 
 def cmd_validate(args):
     result = api.validate(api.load(args.project))
+    ok = result["ok"] and not (args.strict and result["warnings"] > 0)
     if not _p(result, args.json):
         for f in result["findings"]:
             where = f"{f['tree']} / {f['element']}" if f["element"] else \
                 (f["tree"] or "project")
+            waived = "  (waived)" if f.get("waived") else ""
             print(f"{f['severity'].upper():>5s} [{f['corner']}] {where}: "
-                  f"{f['message']}")
-        print(f"{'PASS' if result['ok'] else 'FAIL'}: "
-              f"{result['errors']} errors, {result['warnings']} warnings")
-    return 0 if result["ok"] else 1
+                  f"{f['message']}{waived}")
+        strict = " (strict: warnings fail)" if args.strict else ""
+        print(f"{'PASS' if ok else 'FAIL'}{strict}: "
+              f"{result['errors']} errors, {result['warnings']} warnings, "
+              f"{result.get('waived', 0)} waived")
+    return 0 if ok else 1
 
 
 def cmd_nets(args):
@@ -154,6 +158,11 @@ def cmd_templates(args):
 
 def cmd_export(args):
     project = api.load(args.project)
+    if args.kind == "bundle":
+        for path in api.export_bundle(project, args.output,
+                                      getattr(args, "style", None)):
+            print(f"Wrote {path}")
+        return 0
     written = api.export(project, args.kind, args.output, args.tree,
                          getattr(args, "style", None))
     print(f"Wrote {written}")
@@ -200,6 +209,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("validate",
                        help="margin/net gate for CI — exit 1 on violations")
     common(p)
+    p.add_argument("--strict", action="store_true",
+                   help="also fail on warnings (not just violations)")
     p.set_defaults(fn=cmd_validate)
 
     p = sub.add_parser("nets", help="global net registry + conflicts")
@@ -228,9 +239,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("export", help="export reports/images")
     p.add_argument("kind", choices=["pdf", "html", "png", "csv", "xlsx",
                                     "xlsm", "notes-md", "notes-html",
-                                    "notes-pdf"])
+                                    "notes-pdf", "bundle"])
     p.add_argument("project")
-    p.add_argument("-o", "--output", required=True)
+    p.add_argument("-o", "--output", required=True,
+                   help="output file (or directory for 'bundle')")
     p.add_argument("--tree", help="tree name (png only; default: first)")
     p.add_argument("--style", choices=["dark", "print"],
                    help="flowchart style for pdf/png (print = white)")

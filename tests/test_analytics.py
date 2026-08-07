@@ -309,5 +309,46 @@ def test_demo_uses_efficiency_curve():
     assert 0.90 < eff < 0.94
 
 
+def test_export_bundle():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
+    p = api.demo_project()
+    with tempfile.TemporaryDirectory() as td:
+        written = api.export_bundle(p, td)
+        names = {os.path.basename(w) for w in written}
+        assert len(written) == 6      # pdf, html, xlsx, csv, 2 tree PNGs
+        assert any(n.endswith("_report.pdf") for n in names)
+        assert any(n.endswith("_report.html") for n in names)
+        assert any(n.endswith("_report.xlsx") for n in names)
+        assert any(n.endswith("_table.csv") for n in names)
+        assert sum(1 for n in names if n.endswith(".png")) == 2
+        for w in written:
+            assert os.path.getsize(w) > 500
+
+
+def test_cli_validate_strict(demo_path=None):
+    import subprocess
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    env = dict(os.environ, PYTHONPATH=os.path.join(root, "src"))
+    with tempfile.TemporaryDirectory() as td:
+        clean = os.path.join(td, "clean.ptproj")
+        p = Project("clean")
+        t = p.new_tree("t")
+        src = t.add_element(Source(v_min=5, v_typ=5, v_max=5,
+                                   limit_type="current", limit_value=2.0))
+        t.add_element(Load(load_type=LoadType.CURRENT, value_typ=1.9),
+                      parent_id=src.id)    # 95 % of limit -> warning only
+        api.save(p, clean)
+        normal = subprocess.run(
+            [sys.executable, "-m", "powertree", "validate", clean],
+            capture_output=True, text=True, env=env, cwd=root, timeout=120)
+        strict = subprocess.run(
+            [sys.executable, "-m", "powertree", "validate", clean,
+             "--strict"],
+            capture_output=True, text=True, env=env, cwd=root, timeout=120)
+    assert normal.returncode == 0, normal.stdout + normal.stderr
+    assert strict.returncode == 1, strict.stdout
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
