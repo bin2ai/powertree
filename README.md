@@ -1,10 +1,19 @@
 # PowerTree
 
-**Electronic circuit power tree analysis** — a fully offline Windows desktop app for
+**Electronic circuit power tree analysis** — a fully offline desktop app for
 budgeting power from source to load with min/typ/max corners, margin analysis, a live
-flowchart, and report-grade exports.
+flowchart, and report-grade exports (PDF / HTML / Excel / CSV / PNG).
 
-![status](https://img.shields.io/badge/status-v0.1-blue) — Python 3.12 · PySide6 · no accounts, no internet.
+![version](https://img.shields.io/badge/version-0.5.0-blue)
+![python](https://img.shields.io/badge/python-3.10%2B-blue)
+![license](https://img.shields.io/badge/license-MIT-green)
+— PySide6 · Windows-first · no accounts, no internet.
+
+```bat
+pip install powertree
+powertree-gui                      :: desktop app (opens with a Zynq demo board)
+powertree --help                   :: full CLI
+```
 
 ## What it does
 
@@ -34,29 +43,35 @@ flowchart, and report-grade exports.
   falls back to `.xlsx` + importable `.bas` when VBA trust is off), HD PNG flowchart,
   notes → Markdown / HTML / PDF.
 
-## Run it
+## Install & run
 
-**Installed app** — build `dist\PowerTree-Setup.zip` with
-`installer\build_installer.ps1`, unzip, run `install.bat` (no admin needed:
-installs to `%LOCALAPPDATA%\PowerTree` with Start-Menu/Desktop shortcuts and
-an uninstaller; `installer\PowerTree.iss` builds a signed-style setup.exe when
-Inno Setup is present). The dist folder contains `PowerTree.exe` (GUI) and
-`powertree-cli.exe`.
+**From PyPI** (recommended):
+
+```bat
+pip install powertree            :: add powertree[mcp] for the AI/MCP server
+powertree-gui                    :: GUI
+powertree info my.ptproj         :: CLI (same entry: powertree --help)
+```
 
 **From source:**
 
 ```bat
-:: one-time setup
+git clone https://github.com/bin2ai/powertree
+cd powertree
 py -3.12 -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-
-:: GUI — double-click PowerTree.bat, or:
-.venv\Scripts\python.exe main.py [examples\DemoBoard.ptproj]
+.venv\Scripts\python.exe main.py         :: or double-click PowerTree.bat
 ```
+
+**Standalone Windows installer** (no Python needed) — build
+`dist\PowerTree-Setup.zip` with `installer\build_installer.ps1`, unzip, run
+`install.bat` (per-user install, Start-Menu/Desktop shortcuts, uninstaller;
+`installer\PowerTree.iss` builds a setup.exe when Inno Setup is present).
 
 **Onboarding**: press **F1** in the app (Quick start), or read
 [docs/QUICKSTART.md](docs/QUICKSTART.md) and
-[docs/USER_GUIDE.md](docs/USER_GUIDE.md).
+[docs/USER_GUIDE.md](docs/USER_GUIDE.md). A full feature tour with
+screenshots: `artifacts/PowerTree_Feature_Overview.pdf`.
 
 The app opens with a built-in demo (a realistic Zynq-7000 carrier board) so every
 feature is visible immediately.
@@ -65,16 +80,16 @@ feature is visible immediately.
 
 | Mode | How |
 |---|---|
-| **GUI** | `PowerTree.bat` (no args) — flowchart, list, properties, notes, search |
-| **CLI** | `PowerTree.bat info\|solve\|validate\|nets\|search\|export\|templates\|demo …` — JSON output with `--json`; `validate` exits non-zero on violations (CI gate) |
-| **Excel** | macro-enabled report export, native outline collapse, live formulas |
-| **AI / MCP** | `python -m powertree.mcp_server` — 14 tools (open/solve/validate/edit/export); see `examples/mcp.json.example` for Claude Code / Desktop registration |
+| **GUI** | `powertree-gui` — flowchart, list, properties, states, notes, search, waivers |
+| **CLI** | `powertree info\|solve\|validate\|nets\|headroom\|growth\|bom\|search\|export\|templates\|demo …` — JSON with `--json`; `validate` exits non-zero on violations (`--strict` fails on warnings too) |
+| **Excel** | macro-enabled report export, native outline collapse, live formulas, States/Parts sheets |
+| **AI / MCP** | `powertree-mcp` — 16 tools (open/solve/validate/edit/waive/export); see `examples/mcp.json.example` for Claude Code / Desktop registration |
 
 ```bat
-PowerTree info examples\DemoBoard.ptproj
-PowerTree validate examples\DemoBoard.ptproj      && echo margins clean
-PowerTree solve examples\DemoBoard.ptproj --json  > solved.json
-PowerTree export pdf examples\DemoBoard.ptproj -o report.pdf
+powertree info examples\DemoBoard.ptproj
+powertree validate examples\DemoBoard.ptproj --strict   && echo margins clean
+powertree growth examples\DemoBoard.ptproj              :: +N% load headroom
+powertree export bundle examples\DemoBoard.ptproj -o out\   :: all formats
 ```
 
 ## Tests

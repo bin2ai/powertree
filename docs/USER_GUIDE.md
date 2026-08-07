@@ -134,17 +134,24 @@ in the project.
 ## 4. CLI
 
 ```
-powertree-cli info <p.ptproj>                     project summary
-powertree-cli solve <p> [--tree N] [--state S] [--json]
-powertree-cli validate <p> [--json]               exit 1 on violations (CI gate)
-powertree-cli nets <p>                            net registry + conflicts
-powertree-cli search <p> <query>
-powertree-cli templates
-powertree-cli export pdf|png|xlsx|xlsm|notes-md|notes-html|notes-pdf <p> -o out
-powertree-cli demo -o Demo.ptproj
-powertree-cli gui [p]
+powertree info <p.ptproj>                    project summary + analytics
+powertree solve <p> [--tree N] [--state S] [--json]
+powertree validate <p> [--strict] [--json]   exit 1 on violations (CI gate;
+                                             --strict fails on warnings too)
+powertree nets <p>                           net registry + conflicts
+powertree headroom <p> [--tree N]            remaining budget per limited rail
+powertree growth <p> [--tree N]              max load growth before violation
+powertree bom <p>                            parts list by part number
+powertree search <p> <query>
+powertree templates
+powertree export pdf|html|png|csv|xlsx|xlsm|notes-md|notes-html|notes-pdf|bundle
+               <p> -o out [--tree N] [--style dark|print]
+powertree demo -o Demo.ptproj
+powertree gui [p]                            (or the powertree-gui command)
 ```
-(from the repo, `PowerTree.bat <args>` is the same CLI; no args opens the GUI)
+(pip install exposes `powertree` / `powertree-gui` / `powertree-mcp`; from a
+repo checkout, `PowerTree.bat <args>` is the same CLI and no args opens the
+GUI; the frozen build ships `powertree-cli.exe`)
 
 ## 5. MCP (AI integration)
 

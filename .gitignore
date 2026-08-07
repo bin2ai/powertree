@@ -28,6 +28,11 @@ Thumbs.db
 .DS_Store
 *.swp
 
-# Obsidian volatile workspace state (keep app.json)
-.obsidian/workspace*.json
-.obsidian/cache
+# local operator tooling (machine-specific, never published)
+.claude/
+.obsidian/
+MEMORY.md.autosave
+
+# packaging
+*.egg-info/
+dist_pkg/

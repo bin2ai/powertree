@@ -7,6 +7,11 @@ import os
 import sys
 
 
+def gui_main() -> int:
+    """Console-script entry point (`powertree-gui [project.ptproj]`)."""
+    return run_gui(sys.argv[1] if len(sys.argv) > 1 else None)
+
+
 def run_gui(project_path: str | None = None) -> int:
     from PySide6.QtWidgets import QApplication
 
