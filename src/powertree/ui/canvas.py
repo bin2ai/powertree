@@ -414,6 +414,7 @@ class PowerCanvas(QGraphicsView):
     elementSelected = Signal(str)
     collapseToggled = Signal(str)
     nodeMoved = Signal()
+    contextRequested = Signal(str, object)   # element id ('' = canvas), QPoint
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -561,6 +562,18 @@ class PowerCanvas(QGraphicsView):
     def wheelEvent(self, event):
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
         self.scale(factor, factor)
+
+    def contextMenuEvent(self, event):
+        item = self.itemAt(event.pos())
+        while item is not None and not isinstance(item, NodeItem):
+            item = item.parentItem()
+        el_id = item.el.id if isinstance(item, NodeItem) else ""
+        if el_id:
+            self.scene_.clearSelection()
+            if el_id in self.nodes:
+                self.nodes[el_id].setSelected(True)
+        self.contextRequested.emit(el_id, event.globalPos())
+        event.accept()
 
     def fit(self):
         if self.scene_.items():

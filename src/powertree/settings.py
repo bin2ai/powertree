@@ -47,6 +47,15 @@ class AppSettings:
     def as_dict(self) -> dict:
         return {k: self.get(k) for k in DEFAULTS}
 
+    # ---- recent projects (most recent first, max 8) ----
+    def recent_files(self) -> list:
+        raw = self._qs.value("recent_files", "")
+        return [p for p in str(raw or "").split("|") if p]
+
+    def push_recent(self, path: str) -> None:
+        items = [path] + [p for p in self.recent_files() if p != path]
+        self._qs.setValue("recent_files", "|".join(items[:8]))
+
 
 def resolve_detail(app_default: str, tree, element=None) -> str:
     """app default -> tree.detail_default -> element.display_detail."""

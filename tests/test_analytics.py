@@ -129,5 +129,62 @@ def test_excel_states_sheet():
     assert "Efficiency (%)" in [c.value for c in wb["Overview"][5]]
 
 
+def test_duplicate_subtree():
+    p = api.demo_project()
+    tree = p.trees[0]
+    conv = api.find_element(tree, "U12")           # 1.8V buck w/ children
+    n_before = len(tree.elements)
+    subtree_size = 1 + len(tree.descendants_of(conv.id))
+    dup = tree.duplicate_subtree(conv.id)
+    assert len(tree.elements) == n_before + subtree_size
+    assert dup.name.endswith("(copy)")
+    assert dup.parent_id == conv.parent_id
+    dup_desc = tree.descendants_of(dup.id)
+    assert len(dup_desc) == subtree_size - 1
+    assert {d.id for d in dup_desc}.isdisjoint(
+        {d.id for d in tree.descendants_of(conv.id)})
+    solve_tree(tree)                               # still solves cleanly
+    with pytest.raises(ValueError, match="one source"):
+        tree.duplicate_subtree(tree.source.id)
+
+
+def test_derating_policy_in_validate():
+    p = api.demo_project()
+    assert p.derating_pct == 80.0
+    v = api.validate(p)
+    msgs = [f["message"] for f in v["findings"]]
+    assert any("derating policy" in m and "1.0V Core Buck" in m
+               for m in msgs), "92%-used core buck must trip 80% derating"
+    p.derating_pct = 0                             # disable
+    v2 = api.validate(p)
+    assert not any("derating policy" in f["message"] for f in v2["findings"])
+
+
+def test_derating_roundtrip():
+    from powertree.model import serialization
+    p = api.demo_project()
+    p.derating_pct = 70.0
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "d.ptproj")
+        serialization.save_project(p, path)
+        assert serialization.load_project(path).derating_pct == 70.0
+
+
+def test_html_report_export():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
+    p = api.demo_project()
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "share.html")
+        api.export(p, "html", path)
+        with open(path, encoding="utf-8") as fh:
+            doc = fh.read()
+    assert "data:image/png;base64," in doc          # embedded flowchart
+    assert "ATTENTION" in doc                       # verdict from findings
+    assert "Rail budget" in doc and "Operating states" in doc
+    assert "VDDA" in doc                            # findings listed
+    assert len(doc) > 100_000                       # genuinely self-contained
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

@@ -244,8 +244,22 @@ def validate(project: Project) -> dict:
                                  "message": w.message})
     _nets, conflicts = collect_nets(project)
     for c in conflicts:
-        findings.append({"tree": None, "severity": "error", "corner": "-",
-                         "element": None, "message": c})
+        findings.append({"tree": None, "state": "Base", "severity": "error",
+                         "corner": "-", "element": None, "message": c})
+    # derating policy: rails must not run above N % of their limit
+    if project.derating_pct and project.derating_pct > 0:
+        for tree in project.trees:
+            for h in rail_headroom(tree):
+                if h["used_pct"] > project.derating_pct and \
+                        h["used_pct"] <= 100.0:
+                    findings.append({
+                        "tree": tree.name, "state": "Base",
+                        "severity": "warn", "corner": "max",
+                        "element": h["name"],
+                        "message": (
+                            f"'{h['name']}' runs at {h['used_pct']:g} % of "
+                            f"its {h['limit']} limit — exceeds the "
+                            f"{project.derating_pct:g} % derating policy.")})
     errors = [f for f in findings if f["severity"] == "error"]
     return {"ok": not errors, "errors": len(errors),
             "warnings": len(findings) - len(errors), "findings": findings}
@@ -369,8 +383,11 @@ def export(project: Project, kind: str, out_path: str,
     kind = kind.lower()
     if kind == "csv":
         return export_csv(project, out_path, tree_name)
-    if kind in ("png", "pdf"):
+    if kind in ("png", "pdf", "html"):
         _ensure_headless_qt()
+    if kind == "html":
+        from .export.html_report import export_html_report
+        return export_html_report(project, out_path, image_style=style)
     if kind == "pdf":
         from .export.pdf_report import export_pdf_report
         return export_pdf_report(project, out_path, image_style=style)

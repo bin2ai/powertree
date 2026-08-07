@@ -270,6 +270,34 @@ class PowerTree:
             raise ValueError("New parent must be a source, converter or series element.")
         el.parent_id = new_parent_id
 
+    def duplicate_subtree(self, element_id: str,
+                          new_parent_id: Optional[str] = None) -> Element:
+        """Deep-copy an element and its descendants (fresh ids); attaches to
+        `new_parent_id` or the original's parent. Sources cannot be copied."""
+        import copy as _copy
+        root = self.elements[element_id]
+        if root.kind == ElementKind.SOURCE:
+            raise ValueError("A tree has exactly one source — duplicate its "
+                             "children instead.")
+        parent_id = new_parent_id or root.parent_id
+
+        def clone(el: Element, parent: Optional[str]) -> Element:
+            dup = _copy.deepcopy(el)
+            dup.id = new_id()
+            dup.parent_id = parent
+            dup.x = dup.y = None
+            self.elements[dup.id] = dup
+            for child in [c for c in self.elements.values()
+                          if c.parent_id == el.id and c.id != dup.id]:
+                if child.id in originals:
+                    clone(child, dup.id)
+            return dup
+
+        originals = {root.id} | {d.id for d in self.descendants_of(root.id)}
+        dup_root = clone(root, parent_id)
+        dup_root.name = f"{root.name} (copy)"
+        return dup_root
+
     def add_block(self, name: str = "Block") -> Block:
         block = Block(name=name)
         self.blocks[block.id] = block
@@ -291,6 +319,9 @@ class Project:
         self.trees: list[PowerTree] = []
         self.notes: dict[str, Note] = {}
         self.scenarios: list[str] = []      # named operating states
+        # design policy: flag rails loaded above this % of their limit
+        # (industry practice ~80). 0 disables the check.
+        self.derating_pct: float = 80.0
         self.file_path: Optional[str] = None
 
     def new_tree(self, name: Optional[str] = None) -> PowerTree:

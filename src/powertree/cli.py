@@ -210,8 +210,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_templates)
 
     p = sub.add_parser("export", help="export reports/images")
-    p.add_argument("kind", choices=["pdf", "png", "csv", "xlsx", "xlsm",
-                                    "notes-md", "notes-html", "notes-pdf"])
+    p.add_argument("kind", choices=["pdf", "html", "png", "csv", "xlsx",
+                                    "xlsm", "notes-md", "notes-html",
+                                    "notes-pdf"])
     p.add_argument("project")
     p.add_argument("-o", "--output", required=True)
     p.add_argument("--tree", help="tree name (png only; default: first)")

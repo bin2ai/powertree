@@ -92,6 +92,7 @@ class MainWindow(QMainWindow):
         self.canvas.elementSelected.connect(self._on_canvas_select)
         self.canvas.collapseToggled.connect(self._on_collapse_toggle)
         self.canvas.nodeMoved.connect(self._mark_dirty)
+        self.canvas.contextRequested.connect(self._canvas_context_menu)
         self.list_view = TreeListView()
         self.list_view.elementSelected.connect(self._on_list_select)
         self.tabs.addTab(self.canvas, "Flowchart")
@@ -260,12 +261,16 @@ class MainWindow(QMainWindow):
 
         add(m_file, "&New project", self._new_project, QKeySequence.New)
         add(m_file, "&Open project…", self._open_project, QKeySequence.Open)
+        self.recent_menu = m_file.addMenu("Open &recent")
+        self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
         add(m_file, "&Save project", self._save_project, QKeySequence.Save)
         add(m_file, "Save project &as…", lambda: self._save_project(force_dialog=True),
             QKeySequence.SaveAs)
         m_file.addSeparator()
         m_export = m_file.addMenu("&Export")
         add(m_export, "PDF report (trees + margins + notes)…", self._export_pdf)
+        add(m_export, "Shareable HTML report (single file)…",
+            self._export_html)
         add(m_export, "Excel macro-enabled report (.xlsm)…", self._export_excel)
         add(m_export, "Flowchart image (HD PNG)…", self._export_png)
         add(m_export, "Solved tree table (CSV)…", self._export_csv)
@@ -284,6 +289,8 @@ class MainWindow(QMainWindow):
             "Ctrl+Shift+C")
         add(m_edit, "Copy solved &table", self._copy_table,
             "Ctrl+Shift+T")
+        add(m_edit, "Du&plicate element (with subtree)",
+            self._duplicate_element, "Ctrl+D")
         m_edit.addSeparator()
         add(m_edit, "&Delete selected element", self._delete_element)
 
@@ -292,6 +299,7 @@ class MainWindow(QMainWindow):
             "Ctrl+T")
         add(m_project, "Global &nets…", self._show_nets, "Ctrl+G")
         m_project.addSeparator()
+        add(m_project, "&Derating policy…", self._set_derating)
         add(m_project, "Manage operating &states…", self._manage_states)
         add(m_project, "&Materialize current state as new tree",
             self._materialize_state)
@@ -868,6 +876,112 @@ class MainWindow(QMainWindow):
             return
         self.notes.link_current_to(el.id, el.name)
 
+    def _canvas_context_menu(self, element_id: str, global_pos):
+        from PySide6.QtWidgets import QMenu
+        tree = self.current_tree
+        if tree is None:
+            return
+        menu = QMenu(self)
+        el = tree.elements.get(element_id) if element_id else None
+        if el is None:
+            if tree.source is None:
+                menu.addAction("⊕ Add source…",
+                               lambda: self._add_element(ElementKind.SOURCE))
+            menu.addAction("⌸ Add device from template…",
+                           self._add_from_template)
+            menu.addAction("⛶ Fit view", self.canvas.fit)
+        else:
+            self.selected_element_id = el.id
+            if tree.can_parent(el):
+                menu.addAction("⊞ Add converter under this",
+                               lambda: self._add_element(
+                                   ElementKind.CONVERTER))
+                menu.addAction("◎ Add load under this",
+                               lambda: self._add_element(ElementKind.LOAD))
+                menu.addAction("≡ Add series element under this",
+                               lambda: self._add_element(ElementKind.SERIES))
+                menu.addSeparator()
+            if el.kind != ElementKind.SOURCE:
+                menu.addAction("Duplicate (with subtree)",
+                               self._duplicate_element)
+            if tree.children_of(el.id):
+                label = "Expand" if el.collapsed else "Collapse"
+                menu.addAction(f"{label} branch",
+                               lambda: self._on_collapse_toggle(el.id))
+            menu.addSeparator()
+            menu.addAction("📝 Edit documentation…",
+                           lambda: self._edit_docs_for(el.id))
+            menu.addAction("🗑 Delete…", self._delete_element)
+        menu.exec(global_pos)
+
+    def _duplicate_element(self):
+        el = self._selected_element()
+        tree = self.current_tree
+        if el is None or tree is None:
+            self.statusBar().showMessage("Select an element to duplicate",
+                                         3000)
+            return
+        try:
+            dup = tree.duplicate_subtree(el.id)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Duplicate", str(exc))
+            return
+        self.selected_element_id = dup.id
+        self.refresh(full=True)
+        self.canvas.select_element(dup.id)
+        self.statusBar().showMessage(f"Duplicated as '{dup.name}'", 4000)
+
+    def _set_derating(self):
+        value, ok = QInputDialog.getDouble(
+            self, "Derating policy",
+            "Flag rails loaded above this % of their limit\n"
+            "(industry practice ≈ 80; 0 disables the check):",
+            self.project.derating_pct, 0.0, 100.0, 1)
+        if ok:
+            self.project.derating_pct = value
+            self._mark_dirty()
+            self.statusBar().showMessage(
+                f"Derating policy: {value:g} % (checked by validate/reports)",
+                5000)
+
+    def _fill_recent_menu(self):
+        self.recent_menu.clear()
+        recent = [p for p in self.settings.recent_files() if os.path.exists(p)]
+        if not recent:
+            a = QAction("(no recent projects)", self)
+            a.setEnabled(False)
+            self.recent_menu.addAction(a)
+            return
+        for path in recent:
+            a = QAction(os.path.basename(path), self)
+            a.setToolTip(path)
+            a.triggered.connect(
+                lambda _=False, p=path: self._open_project_path(p))
+            self.recent_menu.addAction(a)
+
+    def _open_project_path(self, path: str):
+        if not self._confirm_discard():
+            return
+        try:
+            self.project = serialization.load_project(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Open project",
+                                 f"Could not open project:\n{exc}")
+            return
+        self.settings.push_recent(path)
+        self.current_tree = self.project.trees[0] if self.project.trees \
+            else None
+        self.selected_element_id = ""
+        self.active_scenario = None
+        self._rebuild_state_combo()
+        self.notes.set_project(self.project)
+        self._rebuild_tree_list()
+        self.refresh(full=True)
+        self.canvas.fit()
+        self._reset_undo()
+        self.dirty = False
+        self._update_title()
+
     # ============================================================ clipboard
     def _copy_canvas_image(self):
         """Copy the current tree's flowchart to the clipboard — paste
@@ -949,30 +1063,11 @@ class MainWindow(QMainWindow):
         self._update_title()
 
     def _open_project(self):
-        if not self._confirm_discard():
-            return
         path, _ = QFileDialog.getOpenFileName(
             self, "Open project", "",
             f"PowerTree project (*{FILE_EXT});;All files (*)")
-        if not path:
-            return
-        try:
-            self.project = serialization.load_project(path)
-        except Exception as exc:
-            QMessageBox.critical(self, "Open project",
-                                 f"Could not open project:\n{exc}")
-            return
-        self.current_tree = self.project.trees[0] if self.project.trees else None
-        self.selected_element_id = ""
-        self.active_scenario = None
-        self._rebuild_state_combo()
-        self.notes.set_project(self.project)
-        self._rebuild_tree_list()
-        self.refresh(full=True)
-        self.canvas.fit()
-        self._reset_undo()
-        self.dirty = False
-        self._update_title()
+        if path:
+            self._open_project_path(path)
 
     def _save_project(self, force_dialog: bool = False) -> bool:
         path = self.project.file_path
@@ -990,6 +1085,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Save project",
                                  f"Could not save project:\n{exc}")
             return False
+        self.settings.push_recent(path)
         self.dirty = False
         self._update_title()
         self.statusBar().showMessage(f"Saved {path}", 4000)
@@ -1048,6 +1144,22 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Image export", f"Export failed:\n{exc}")
             return
         self.statusBar().showMessage(f"HD flowchart image written: {path}", 6000)
+
+    def _export_html(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export shareable HTML report",
+            f"{self.project.name}_report.html", "HTML (*.html)")
+        if not path:
+            return
+        from ..export.html_report import export_html_report
+        try:
+            export_html_report(self.project, path, image_style=Theme.style)
+        except Exception as exc:
+            QMessageBox.critical(self, "HTML export", f"Export failed:\n{exc}")
+            return
+        self.statusBar().showMessage(
+            f"Shareable HTML report written: {path} — one file, opens in any "
+            "browser", 6000)
 
     def _export_csv(self):
         path, _ = QFileDialog.getSaveFileName(
