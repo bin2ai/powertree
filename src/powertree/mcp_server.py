@@ -173,6 +173,18 @@ def apply_template(template_key: str, rail_map: dict, tree: str = "",
 
 
 @mcp.tool()
+def waive_finding(element: str, message: str, reason: str,
+                  tree: str = "") -> dict:
+    """Acknowledge a finding with an engineering justification (it stays
+    visible in reports as an audit trail but stops counting). `message`
+    must match the finding text exactly (see solve_tree/validate)."""
+    project = _project()
+    t = api.find_tree(project, tree or None)
+    el = api.find_element(t, element)
+    return api.waive_finding(project, el.id, message, reason)
+
+
+@mcp.tool()
 def export_report(kind: str, out_path: str, tree: str = "") -> str:
     """Export a deliverable: kind = pdf | png | xlsx | xlsm | notes-md |
     notes-html | notes-pdf."""

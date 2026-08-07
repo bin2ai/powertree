@@ -174,6 +174,9 @@ class MainWindow(QMainWindow):
         # bottom: findings
         self.findings = QListWidget()
         self.findings.itemClicked.connect(self._on_finding_click)
+        self.findings.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.findings.customContextMenuRequested.connect(
+            self._findings_context_menu)
         self.findings_dock = QDockWidget("Findings — margin analysis", self)
         self.findings_dock.setWidget(self.findings)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.findings_dock)
@@ -323,6 +326,7 @@ class MainWindow(QMainWindow):
         add(m_project, "Add device from &template…", self._add_from_template,
             "Ctrl+T")
         add(m_project, "Global &nets…", self._show_nets, "Ctrl+G")
+        add(m_project, "Project &properties…", self._project_properties)
         m_project.addSeparator()
         add(m_project, "&Validate project (all trees + states)…",
             self._validate_project, "Ctrl+Shift+V")
@@ -379,21 +383,62 @@ class MainWindow(QMainWindow):
             self._on_search(self.search_box.text())
 
     def _rebuild_findings(self):
+        from ..api import split_waived
         self.findings.clear()
         if not self.results:
             return
         icons = {"error": "⛔", "warn": "⚠️", "info": "ℹ️"}
-        for w in self.results.warnings:
+        active, waived = split_waived(self.project, self.results.warnings)
+        for w in active:
             item = QListWidgetItem(
                 f"{icons.get(w.severity, '•')}  [{w.corner}]  {w.message}")
             item.setData(Qt.UserRole, w.element_id)
+            item.setData(Qt.UserRole + 1, w.message)
+            item.setData(Qt.UserRole + 2, False)
+            self.findings.addItem(item)
+        for w, reason in waived:
+            item = QListWidgetItem(
+                f"◌  [{w.corner}]  {w.message}   — WAIVED: {reason}")
+            item.setData(Qt.UserRole, w.element_id)
+            item.setData(Qt.UserRole + 1, w.message)
+            item.setData(Qt.UserRole + 2, True)
+            from PySide6.QtGui import QBrush, QColor
+            item.setForeground(QBrush(QColor("#667085")))
             self.findings.addItem(item)
         title = "Findings — margin analysis"
         if self.results.warnings:
-            errs = sum(1 for w in self.results.warnings if w.severity == "error")
-            warns = sum(1 for w in self.results.warnings if w.severity == "warn")
-            title += f"  ({errs} errors, {warns} warnings)"
+            errs = sum(1 for w in active if w.severity == "error")
+            warns = sum(1 for w in active if w.severity == "warn")
+            extra = f", {len(waived)} waived" if waived else ""
+            title += f"  ({errs} errors, {warns} warnings{extra})"
         self.findings_dock.setWindowTitle(title)
+
+    def _findings_context_menu(self, pos):
+        from PySide6.QtWidgets import QMenu
+        from ..api import waive_finding, unwaive_finding
+        item = self.findings.itemAt(pos)
+        if item is None:
+            return
+        element_id = item.data(Qt.UserRole)
+        message = item.data(Qt.UserRole + 1)
+        is_waived = item.data(Qt.UserRole + 2)
+        menu = QMenu(self)
+        if is_waived:
+            menu.addAction(
+                "Remove waiver (finding counts again)",
+                lambda: (unwaive_finding(self.project, element_id, message),
+                         self.refresh()))
+        else:
+            def do_waive():
+                reason, ok = QInputDialog.getText(
+                    self, "Waive finding",
+                    "Engineering justification (kept as audit trail in "
+                    "reports):")
+                if ok and reason.strip():
+                    waive_finding(self.project, element_id, message, reason)
+                    self.refresh()
+            menu.addAction("Waive with justification…", do_waive)
+        menu.exec(self.findings.mapToGlobal(pos))
 
     def _update_status(self):
         tree = self.current_tree
@@ -404,10 +449,14 @@ class MainWindow(QMainWindow):
         typ = self.results.get(src.id, "typ")
         mx = self.results.get(src.id, "max")
         mn = self.results.get(src.id, "min")
-        errs = sum(1 for w in self.results.warnings if w.severity == "error")
-        warns = sum(1 for w in self.results.warnings if w.severity == "warn")
+        from ..api import split_waived
+        active, waived = split_waived(self.project, self.results.warnings)
+        errs = sum(1 for w in active if w.severity == "error")
+        warns = sum(1 for w in active if w.severity == "warn")
         health = "✅ all margins healthy" if not (errs or warns) else \
             f"⛔ {errs} violations · ⚠️ {warns} low margins"
+        if waived:
+            health += f" · ◌ {len(waived)} waived"
         state = f" · state: ◈ {self.active_scenario}" \
             if self.active_scenario else ""
         from ..api import tree_metrics
@@ -957,6 +1006,33 @@ class MainWindow(QMainWindow):
         self.refresh(full=True)
         self.canvas.select_element(dup.id)
         self.statusBar().showMessage(f"Duplicated as '{dup.name}'", 4000)
+
+    def _project_properties(self):
+        from PySide6.QtWidgets import (QDialog, QFormLayout, QLineEdit,
+                                       QPlainTextEdit, QDialogButtonBox)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Project properties")
+        dlg.setMinimumWidth(420)
+        form = QFormLayout(dlg)
+        name = QLineEdit(self.project.name)
+        form.addRow("Project name", name)
+        author = QLineEdit(self.project.author)
+        author.setToolTip("Shown on report title pages")
+        form.addRow("Author / team", author)
+        desc = QPlainTextEdit(self.project.description)
+        desc.setMaximumHeight(90)
+        form.addRow("Description", desc)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec():
+            self.project.name = name.text().strip() or self.project.name
+            self.project.author = author.text().strip()
+            self.project.description = desc.toPlainText()
+            self._mark_dirty()
+            self._update_title()
 
     def _validate_project(self):
         """CLI `validate` parity in the GUI: every tree, Base + every state,

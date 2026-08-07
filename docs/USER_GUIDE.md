@@ -65,6 +65,27 @@ report sections — **the tree still solves; you are made aware**:
 - series element beyond its current/dissipation rating (error; >90 % warning)
 - buck/LDO with Vout > Vin, boost with Vout < Vin (warning)
 - collapsed rail, non-convergence, net conflicts
+- rails loaded beyond the **derating policy** (`Project → Derating policy…`,
+  default 80 % of the hard limit)
+
+**Waivers**: right-click a finding → *Waive with justification*. Waived
+findings stop counting (status bar, validate, PASS/FAIL) but remain visible
+greyed-out in the GUI and every report with the justification — a proper
+review audit trail. Right-click again to un-waive.
+
+### Efficiency curves
+A converter can carry a datasheet **efficiency-vs-load curve**
+(`η curve` field in Properties, e.g. `0.1:85, 0.5:91, 1:93, 3:90` as
+`Iout(A):η(%)` pairs). The solver interpolates at the solved output current
+per corner; cards show the effective η marked `*`. Without a curve the flat
+efficiency applies.
+
+### Analytics
+Every surface exposes decision-grade analytics: end-to-end efficiency and
+total loss (status bar, overviews), **top consumers with % of source
+budget**, and **rail budgets** — remaining headroom per limited rail and the
+extra load it could still accept (`headroom` CLI command, PDF/HTML tables,
+MCP `rail_headroom`).
 
 ### Operating states
 `Project → Manage operating states…` defines named states. Element
@@ -101,7 +122,9 @@ in the project.
 
 | Export | Contents |
 |---|---|
-| **PDF report** | cover + per-tree overview, global nets, embedded flowchart, hierarchy table (typ + max corners, losses, status colors), blocks, per-state comparison, margin findings, full notes appendix |
+| **PDF report** | executive summary (KPIs, health verdict, top consumers), global nets, per-tree flowchart + hierarchy table, rail budgets, blocks, per-state comparison, margin findings incl. waivers, full notes appendix |
+| **HTML report** | the same content as ONE self-contained file (images embedded) — mail it, no install needed |
+| **CSV** | the fully-solved element table (all trees or one) for scripts and spreadsheets |
 | **Excel (.xlsm)** | Overview, one sheet per tree with Excel outline collapse (+/−), live P=V·I formulas, kind/severity coloring, Warnings sheet, VBA navigation macros (needs "Trust access to the VBA project object model"; otherwise .xlsx + importable .bas) |
 | **Flowchart PNG** | HD render at the configured scale, honoring current style (dark/print), heat mode and detail level |
 | **Notes → MD / HTML / PDF** | the entire vault (hierarchy preserved, images embedded, element links listed) |

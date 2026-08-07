@@ -77,7 +77,8 @@ def _hierarchy_rows(tree: PowerTree, results: TreeResults, styles):
 
 def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
                     include_image: bool = True, scenarios: list | None = None,
-                    image_style: str | None = None):
+                    image_style: str | None = None,
+                    project_for_waivers=None):
     flow = [Paragraph(_esc(tree.name), styles["PTH1"])]
     if tree.description:
         flow.append(Paragraph(_esc(tree.description), styles["PTBody"]))
@@ -219,17 +220,28 @@ def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
         ]))
         flow += [bt, Spacer(1, 6)]
 
-    # warnings
+    # warnings (waived findings stay listed, greyed, with justification)
     flow.append(Paragraph("Margin analysis", styles["PTH3"]))
     if not results.warnings:
         flow.append(Paragraph(
             "All margins healthy: no limit, voltage-window or convergence issues "
             "in any corner.", styles["PTBody"]))
     else:
+        from ..api import split_waived
+        active, waived = ((results.warnings, [])
+                          if project_for_waivers is None else
+                          split_waived(project_for_waivers, results.warnings))
         wrows = [["Severity", "Corner", "Message"]]
-        for w in results.warnings:
+        row_fills = []
+        for w in active:
             wrows.append([w.severity.upper(), w.corner,
                           Paragraph(_esc(w.message), styles["PTBody"])])
+            row_fills.append(SEV_FILL.get(w.severity))
+        for w, reason in waived:
+            wrows.append(["WAIVED", w.corner, Paragraph(
+                f"{_esc(w.message)}  <i>Justification: {_esc(reason)}</i>",
+                styles["PTMeta"])])
+            row_fills.append(colors.HexColor("#eef1f6"))
         wt = Table(wrows, hAlign="LEFT", colWidths=[18 * mm, 14 * mm, 140 * mm])
         wstyle = [
             ("FONTSIZE", (0, 0), (-1, -1), 7.5),
@@ -239,8 +251,7 @@ def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ]
-        for i, w in enumerate(results.warnings, start=1):
-            fill = SEV_FILL.get(w.severity)
+        for i, fill in enumerate(row_fills, start=1):
             if fill:
                 wstyle.append(("BACKGROUND", (0, i), (-1, i), fill))
         wt.setStyle(TableStyle(wstyle))
@@ -387,7 +398,8 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
         flow += _tree_flowables(tree, all_results[tree.id], styles,
                                 include_image=include_images,
                                 scenarios=project.scenarios,
-                                image_style=image_style)
+                                image_style=image_style,
+                                project_for_waivers=project)
 
     if include_notes and project.notes:
         flow.append(PageBreak())

@@ -260,5 +260,54 @@ def test_fmt_si_digits_knob():
         calc.SI_DIGITS = old
 
 
+def test_waiver_lifecycle():
+    from powertree.model import serialization
+    from powertree.model.calc import solve_tree as _solve
+    p = api.demo_project()
+    tree = p.trees[0]
+    r = _solve(tree)
+    vdda_warns = [w for w in r.warnings if "VDDA" in w.message]
+    assert len(vdda_warns) == 3
+    with pytest.raises(ValueError, match="justification"):
+        api.waive_finding(p, vdda_warns[0].element_id,
+                          vdda_warns[0].message, "   ")
+    for w in vdda_warns:
+        api.waive_finding(p, w.element_id, w.message,
+                          "Clock gen VDDA has internal LDO, tolerates 1.5 V "
+                          "per vendor errata EN-042.")
+    active, waived = api.split_waived(p, r.warnings)
+    assert len(waived) == 3
+    assert not any("VDDA" in w.message for w in active)
+    v = api.validate(p)
+    base_errors = [f for f in v["findings"]
+                   if f["severity"] == "error" and f["state"] == "Base"
+                   and not f["waived"]]
+    assert base_errors == []          # all three errors waived
+    assert v["waived"] >= 3
+    # persists through the file format
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "w.ptproj")
+        serialization.save_project(p, path)
+        p2 = serialization.load_project(path)
+    assert len(p2.waivers) == 3
+    # unwaive works
+    assert api.unwaive_finding(p, vdda_warns[0].element_id,
+                               vdda_warns[0].message)
+    active2, waived2 = api.split_waived(p, r.warnings)
+    assert len(waived2) == 2
+
+
+def test_demo_uses_efficiency_curve():
+    p = api.demo_project()
+    tree = p.trees[0]
+    buck5 = api.find_element(tree, "U10")
+    assert len(buck5.eff_points) >= 5
+    r = solve_tree(tree)
+    i_out = r.get(buck5.id, "typ").i_out
+    eff = buck5.efficiency_at(i_out)
+    # at ~0.9 A the curve sits between the 0.5 A and 1.0 A points
+    assert 0.90 < eff < 0.94
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

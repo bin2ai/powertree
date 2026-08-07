@@ -236,12 +236,16 @@ def validate(project: Project) -> dict:
             r = solve_tree(tree, scenario)
             for w in r.warnings:
                 el = tree.elements.get(w.element_id) if w.element_id else None
+                waiver = find_waiver(project, w.element_id, w.message)
                 findings.append({"tree": tree.name,
                                  "state": scenario or "Base",
                                  "severity": w.severity,
                                  "corner": w.corner,
                                  "element": el.name if el else None,
-                                 "message": w.message})
+                                 "message": w.message,
+                                 "waived": bool(waiver),
+                                 "waiver_reason": waiver["reason"]
+                                 if waiver else None})
     _nets, conflicts = collect_nets(project)
     for c in conflicts:
         findings.append({"tree": None, "state": "Base", "severity": "error",
@@ -260,9 +264,12 @@ def validate(project: Project) -> dict:
                             f"'{h['name']}' runs at {h['used_pct']:g} % of "
                             f"its {h['limit']} limit — exceeds the "
                             f"{project.derating_pct:g} % derating policy.")})
-    errors = [f for f in findings if f["severity"] == "error"]
+    active = [f for f in findings if not f.get("waived")]
+    errors = [f for f in active if f["severity"] == "error"]
+    waived = [f for f in findings if f.get("waived")]
     return {"ok": not errors, "errors": len(errors),
-            "warnings": len(findings) - len(errors), "findings": findings}
+            "warnings": len(active) - len(errors),
+            "waived": len(waived), "findings": findings}
 
 
 def nets_report(project: Project) -> dict:
@@ -273,6 +280,52 @@ def nets_report(project: Project) -> dict:
                      for d in info.definers]}
         for name, info in sorted(nets.items())],
         "conflicts": conflicts}
+
+
+# ------------------------------------------------------------------ waivers
+def find_waiver(project: Project, element_id, message: str):
+    for w in project.waivers:
+        if w.get("element_id") == element_id and w.get("message") == message:
+            return w
+    return None
+
+
+def waive_finding(project: Project, element_id, message: str,
+                  reason: str) -> dict:
+    """Acknowledge a finding with an engineering justification. Waived
+    findings stop counting as errors/warnings but stay visible (audit
+    trail) in the GUI and every report."""
+    if not reason.strip():
+        raise ValueError("A waiver requires a justification.")
+    existing = find_waiver(project, element_id, message)
+    if existing:
+        existing["reason"] = reason.strip()
+        return existing
+    waiver = {"element_id": element_id, "message": message,
+              "reason": reason.strip()}
+    project.waivers.append(waiver)
+    return waiver
+
+
+def unwaive_finding(project: Project, element_id, message: str) -> bool:
+    before = len(project.waivers)
+    project.waivers = [w for w in project.waivers
+                       if not (w.get("element_id") == element_id
+                               and w.get("message") == message)]
+    return len(project.waivers) < before
+
+
+def split_waived(project: Project, warnings: list):
+    """(active, waived) partition of solver warnings; waived entries carry
+    their justification."""
+    active, waived = [], []
+    for w in warnings:
+        waiver = find_waiver(project, w.element_id, w.message)
+        if waiver:
+            waived.append((w, waiver["reason"]))
+        else:
+            active.append(w)
+    return active, waived
 
 
 def parts_list(project: Project) -> list:

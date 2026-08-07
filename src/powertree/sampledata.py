@@ -64,6 +64,9 @@ def build_sample_project() -> Project:
     buck5.signal_name = "VCC_5V0"
     buck5.vout_min, buck5.vout_typ, buck5.vout_max = 4.95, 5.0, 5.05
     buck5.efficiency_pct = 93.0
+    # datasheet efficiency-vs-load curve (TPS54560 fig. at 12 Vin / 5 Vout)
+    buck5.eff_points = [[0.05, 78.0], [0.1, 84.0], [0.5, 91.0],
+                        [1.0, 93.0], [2.0, 93.5], [3.5, 92.0], [5.0, 90.0]]
     buck5.limit_type, buck5.limit_value = LimitType.CURRENT, 5.0
     buck5.quiescent_ma = 0.0
 

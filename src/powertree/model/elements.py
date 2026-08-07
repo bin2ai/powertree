@@ -345,6 +345,9 @@ class Project:
         # design policy: flag rails loaded above this % of their limit
         # (industry practice ~80). 0 disables the check.
         self.derating_pct: float = 80.0
+        # acknowledged findings: [{element_id, message, reason}] — waived
+        # with engineering justification, kept as an audit trail.
+        self.waivers: list = []
         self.file_path: Optional[str] = None
 
     def new_tree(self, name: Optional[str] = None) -> PowerTree:
