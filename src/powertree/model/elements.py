@@ -120,11 +120,30 @@ class Load(Element):
     v_in_max: Optional[float] = None
 
 
+class SeriesType:
+    """What the series element physically is. DC math always uses the
+    resistance (DCR for ferrites/inductors); inductance is carried for
+    documentation and AC awareness."""
+    RESISTOR = "resistor"
+    FERRITE_BEAD = "ferrite_bead"
+    INDUCTOR = "inductor"
+    FUSE = "fuse"
+    CABLE = "cable"
+    CONNECTOR = "connector"
+    SWITCH = "switch"
+    ALL = (RESISTOR, FERRITE_BEAD, INDUCTOR, FUSE, CABLE, CONNECTOR, SWITCH)
+    LABELS = {RESISTOR: "R", FERRITE_BEAD: "FB", INDUCTOR: "L", FUSE: "F",
+              CABLE: "CBL", CONNECTOR: "CON", SWITCH: "SW"}
+
+
 @dataclass
 class SeriesElement(Element):
     kind: str = ElementKind.SERIES
     name: str = "Series R"
-    resistance_ohm: float = 0.010
+    series_type: str = SeriesType.RESISTOR
+    resistance_ohm: float = 0.010       # DCR for ferrite beads / inductors
+    inductance_uh: float = 0.0          # informational (DC solver ignores it)
+    rating: str = ""                    # e.g. fuse rating '2 A', bead '600R@100MHz'
 
     @property
     def resistance(self) -> float:
@@ -182,7 +201,9 @@ class PowerTree:
 
     def children_of(self, element_id: Optional[str]) -> list[Element]:
         kids = [e for e in self.elements.values() if e.parent_id == element_id]
-        kids.sort(key=lambda e: (e.kind != ElementKind.SERIES, e.name.lower(), e.id))
+        # series first, then grouped by block so block members sit adjacent
+        kids.sort(key=lambda e: (e.kind != ElementKind.SERIES,
+                                 e.block_id or "￿", e.name.lower(), e.id))
         return kids
 
     def descendants_of(self, element_id: str) -> list[Element]:

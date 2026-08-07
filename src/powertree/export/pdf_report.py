@@ -21,6 +21,7 @@ from reportlab.platypus import (
 
 from ..model.elements import Project, PowerTree, ElementKind, LimitType
 from ..model.calc import solve_tree, TreeResults, block_power, fmt_si
+from ..model.nets import collect_nets
 from .md_render import build_styles, md_to_flowables
 from .notes_export import collect_notes, _element_links_line
 from .image_export import tree_png_bytes
@@ -230,6 +231,38 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
     ]))
     flow.append(ot)
+
+    # ---- global net registry ----
+    nets, conflicts = collect_nets(project)
+    if nets:
+        flow.append(Spacer(1, 10))
+        flow.append(Paragraph("Global nets", styles["PTH3"]))
+        nrows = [["Net", "V typ", "Defined by", "Loads fed"]]
+        for name in sorted(nets):
+            info = nets[name]
+            definers = "; ".join(
+                f"{d.element_name} ({d.tree_name})" for d in info.definers[:3])
+            if len(info.definers) > 3:
+                definers += f" +{len(info.definers) - 3} more"
+            nrows.append([
+                Paragraph(f"<font face='Courier'>{_esc(name)}</font>",
+                          styles["PTBody"]),
+                fmt_si(info.v_typ, "V") if info.v_typ is not None else "—",
+                Paragraph(_esc(definers), styles["PTBody"]),
+                str(info.consumers)])
+        nt = Table(nrows, hAlign="LEFT", repeatRows=1,
+                   colWidths=[36 * mm, 18 * mm, 100 * mm, 18 * mm])
+        nt.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8ecf5")),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#c3ccdd")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        flow.append(nt)
+        for c in conflicts:
+            flow.append(Paragraph(f"⚠ {_esc(c)}", styles["PTBody"]))
 
     for tree in project.trees:
         flow.append(PageBreak())

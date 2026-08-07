@@ -94,9 +94,17 @@ def element_lines(el: Element, results: TreeResults) -> list:
             hi = f"{el.v_in_max:g}" if el.v_in_max is not None else "—"
             lines.append(f"allowed: {lo} … {hi} V")
     elif el.kind == ElementKind.SERIES:
-        lines.append(f"R = {fmt_si(el.resistance_ohm, 'Ω')} · I {fmt_si(typ.i_in, 'A')}")
+        from ..model.elements import SeriesType
+        tag = SeriesType.LABELS.get(getattr(el, "series_type", ""), "R")
+        extra = ""
+        if getattr(el, "inductance_uh", 0.0):
+            extra = f" · {el.inductance_uh:g} µH"
+        lines.append(f"{tag}: {fmt_si(el.resistance_ohm, 'Ω')}{extra}"
+                     f" · I {fmt_si(typ.i_in, 'A')}")
         lines.append(f"drop {fmt_si(typ.v_in - typ.v_out, 'V')}"
                      f" · loss {fmt_si(typ.p_loss, 'W')}")
+        if getattr(el, "rating", ""):
+            lines.append(f"rating: {el.rating}")
     return lines
 
 
@@ -242,8 +250,10 @@ class NodeItem(QGraphicsObject):
 
 
 class BlockItem(QGraphicsPathItem):
-    def __init__(self, block, rect: tuple, power_text: str):
+    def __init__(self, block, rect: tuple, power_text: str,
+                 continued: bool = False):
         super().__init__()
+        self.continued = continued
         x, y, w, h = rect
         path = QPainterPath()
         path.addRoundedRect(QRectF(x, y, w, h), 12, 12)
@@ -264,8 +274,9 @@ class BlockItem(QGraphicsPathItem):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setFont(QFont("Segoe UI", 8, QFont.Bold))
         painter.setPen(QPen(QColor(self.block.color)))
+        label = self.block.name + (" ⋯" if self.continued else "")
         painter.drawText(self.label_rect, Qt.AlignLeft | Qt.AlignVCenter,
-                         self.block.name)
+                         label)
         painter.setPen(QPen(Theme.text_dim))
         painter.setFont(QFont("Consolas", 8))
         painter.drawText(self.label_rect, Qt.AlignRight | Qt.AlignVCenter,
@@ -357,11 +368,16 @@ class PowerCanvas(QGraphicsView):
         horiz = tree.orientation == "LR"
         movable = tree.orientation == "custom"
 
-        # blocks behind everything
-        for bid, rect in L.block_rects(tree, lay).items():
+        # blocks behind everything — one outline per contiguous cluster
+        for bid, clusters in L.block_clusters(tree, lay).items():
             block = tree.blocks[bid]
             p = block_power(tree, results, bid, "typ")
-            self.scene_.addItem(BlockItem(block, rect, fmt_si(p, "W")))
+            multi = len(clusters) > 1
+            for rect, _members, primary in clusters:
+                power = fmt_si(p, "W") if primary else ""
+                item = BlockItem(block, rect, power,
+                                 continued=multi and not primary)
+                self.scene_.addItem(item)
 
         # edges
         edge_map = {}
@@ -523,10 +539,14 @@ def render_tree_image(tree: PowerTree, results: TreeResults,
     scene = QGraphicsScene()
     lay = L.compute_layout(tree, orientation or tree.orientation)
     canvas_stub = _StubCanvas()
-    for bid, rect in L.block_rects(tree, lay).items():
+    for bid, clusters in L.block_clusters(tree, lay).items():
         block = tree.blocks[bid]
         p = block_power(tree, results, bid, "typ")
-        scene.addItem(BlockItem(block, rect, fmt_si(p, "W")))
+        multi = len(clusters) > 1
+        for rect, _members, primary in clusters:
+            power = fmt_si(p, "W") if primary else ""
+            scene.addItem(BlockItem(block, rect, power,
+                                    continued=multi and not primary))
     horiz = (orientation or tree.orientation) == "LR"
     for pid, cid, pts in lay.edges:
         parent = tree.elements[pid]

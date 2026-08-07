@@ -127,12 +127,22 @@ def test_block_power_no_double_count():
     tree = p.trees[0]
     r = solve_tree(tree)
     for bid in tree.blocks:
-        bp = block_power(tree, r, bid, "typ")
-        assert bp > 0
-    # MCU block: icc 0.12*3.3 + iq 0.002*3.3 + core 0.04*1.8
-    mcu = next(b for b in tree.blocks.values() if "MCU" in b.name)
-    expected = 0.120 * 3.3 + 0.002 * 3.3 + 0.040 * 1.8
-    assert math.isclose(block_power(tree, r, mcu.id, "typ"), expected, rel_tol=1e-3)
+        assert block_power(tree, r, bid, "typ") > 0
+    # Zynq block: every member's parent is outside the block, so the block
+    # power must equal the plain sum of member input powers (no double count)
+    zynq = next(b for b in tree.blocks.values() if "Zynq" in b.name)
+    expected = sum(r.get(e.id, "typ").p_in
+                   for e in tree.block_members(zynq.id))
+    assert math.isclose(block_power(tree, r, zynq.id, "typ"), expected,
+                        rel_tol=1e-9)
+    # regulator block: converter + its Iq load; block power counts the
+    # converter INPUT power plus the Iq load, not the downstream double
+    reg = next(b for b in tree.blocks.values() if "5V Intermediate" in b.name)
+    members = tree.block_members(reg.id)
+    assert len(members) == 2
+    expected = sum(r.get(e.id, "typ").p_in for e in members)
+    assert math.isclose(block_power(tree, r, reg.id, "typ"), expected,
+                        rel_tol=1e-9)
 
 
 def test_serialization_roundtrip():

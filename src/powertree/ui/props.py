@@ -238,11 +238,29 @@ class PropertyPanel(QScrollArea):
                 lambda: self._commit(lambda x: setattr(el, "v_in_max", x), hi.value()))
             form.addRow("Allowed Vin max", hi)
         elif isinstance(el, SeriesElement):
+            from ..model.elements import SeriesType
+            st = QComboBox()
+            st.addItems(list(SeriesType.ALL))
+            st.setCurrentText(el.series_type)
+            st.currentTextChanged.connect(
+                lambda v: self._commit(lambda x: setattr(el, "series_type", x), v))
+            form.addRow("Type", st)
             res = self._spin(el.resistance_ohm, 1e-6, 1e9, 6, "Ω", 0.001)
+            res.setToolTip("DC resistance (DCR for ferrite beads / inductors) "
+                           "— this is what the DC solver uses")
             res.valueChanged.connect(
                 lambda v: self._commit(
                     lambda x: setattr(el, "resistance_ohm", x), v))
             form.addRow("Resistance", res)
+            ind = self._spin(el.inductance_uh, 0, 1e9, 4, "µH", 0.1)
+            ind.setToolTip("Informational — ignored by the DC solver, shown "
+                           "on the card for AC/filtering awareness")
+            ind.valueChanged.connect(
+                lambda v: self._commit(
+                    lambda x: setattr(el, "inductance_uh", x), v))
+            form.addRow("Inductance", ind)
+            self._text(el.rating, lambda v: setattr(el, "rating", v),
+                       form, "Rating")
 
         # ---- block assignment ----
         if el.kind != ElementKind.SOURCE or True:

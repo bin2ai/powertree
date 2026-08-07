@@ -4,6 +4,13 @@ Tidy-tree layout with variable node sizes, TD / LR orientation, collapse
 support and orthogonal (90-degree) edge routing. Guarantees no overlapping
 nodes: each subtree is allotted its full extent along the breadth axis.
 
+Block-aware refinements:
+  - a leaf load that shares a block with a sibling converter (the
+    "regulator = converter + its own Iq" pattern) is tucked directly beside
+    that converter instead of being pushed to the edge of the row;
+  - block outlines are drawn per contiguous CLUSTER of members, so a block
+    whose members live on different rails never sprawls across the canvas.
+
 Coordinates are the CENTER of each node.
 """
 
@@ -20,6 +27,8 @@ SERIES_H = 72.0
 H_GAP = 46.0      # gap along breadth axis
 V_GAP = 78.0      # gap along depth axis
 BLOCK_PAD = 18.0  # extra clearance for nodes that belong to a block
+ATTACH_GAP = 18.0  # gap between a converter and its tucked companion loads
+CLUSTER_DIST = 90.0  # members closer than this merge into one block cluster
 
 
 def node_size(el: Element) -> tuple:
@@ -40,12 +49,29 @@ class LayoutResult:
     bounds: tuple = (0.0, 0.0, 0.0, 0.0)            # x, y, w, h
 
 
+def _companion_map(tree: PowerTree, visible: set) -> dict:
+    """conv_id -> [leaf loads sharing the converter's block AND parent]."""
+    attached: dict[str, list] = {}
+    for el in tree.elements.values():
+        if el.id not in visible or el.parent_id is None:
+            continue
+        siblings = tree.children_of(el.parent_id)
+        if el.kind == ElementKind.CONVERTER and el.block_id:
+            mates = [s for s in siblings
+                     if s.id != el.id and s.id in visible
+                     and s.kind == ElementKind.LOAD
+                     and s.block_id == el.block_id]
+            if mates:
+                attached[el.id] = mates
+    return attached
+
+
 def compute_layout(tree: PowerTree, orientation: str = "TD",
                    respect_custom: bool = True) -> LayoutResult:
     """orientation: 'TD' (top-down), 'LR' (left-right) or 'custom'.
 
-    In 'custom' mode nodes keep their stored (x, y) if present; nodes without a
-    stored position fall back to an automatic TD layout so nothing stacks up.
+    In 'custom' mode nodes keep their stored (x, y) if present; nodes without
+    a stored position fall back to an automatic TD layout so nothing stacks.
     """
     out = LayoutResult()
     src = tree.source
@@ -79,27 +105,34 @@ def compute_layout(tree: PowerTree, orientation: str = "TD",
     return out
 
 
-def _breadth_extent(el_id: str, tree: PowerTree, out: LayoutResult, horiz: bool,
-                    cache: dict) -> float:
-    """Total extent of a subtree along the breadth axis."""
-    if el_id in cache:
-        return cache[el_id]
-    el = tree.elements[el_id]
-    w, h = out.sizes[el_id]
-    own = (h if horiz else w) + (BLOCK_PAD * 2 if el.block_id else 0.0)
-    kids = [c for c in tree.children_of(el_id) if c.id in out.visible] \
-        if not el.collapsed else []
-    if not kids:
-        cache[el_id] = own + H_GAP
-        return cache[el_id]
-    kid_total = sum(_breadth_extent(c.id, tree, out, horiz, cache) for c in kids)
-    cache[el_id] = max(own + H_GAP, kid_total)
-    return cache[el_id]
-
-
-def _tidy_layout(tree: PowerTree, src: Element, base: str, out: LayoutResult) -> None:
+def _tidy_layout(tree: PowerTree, src: Element, base: str,
+                 out: LayoutResult) -> None:
     horiz = (base == "LR")
+    attached = _companion_map(tree, out.visible)
+    attached_ids = {m.id for mates in attached.values() for m in mates}
     cache: dict = {}
+
+    def breadth_of(el_id: str) -> float:
+        w, h = out.sizes[el_id]
+        return h if horiz else w
+
+    def kids_of(el: Element) -> list:
+        if el.collapsed:
+            return []
+        return [c for c in tree.children_of(el.id)
+                if c.id in out.visible and c.id not in attached_ids]
+
+    def extent(el_id: str) -> float:
+        if el_id in cache:
+            return cache[el_id]
+        el = tree.elements[el_id]
+        own = breadth_of(el_id) + (BLOCK_PAD * 2 if el.block_id else 0.0)
+        for mate in attached.get(el_id, []):
+            own += ATTACH_GAP + breadth_of(mate.id)
+        kids = kids_of(el)
+        kid_total = sum(extent(c.id) for c in kids)
+        cache[el_id] = max(own + H_GAP, kid_total)
+        return cache[el_id]
 
     # depth positions: cumulative max node depth-size per level
     levels: dict[int, float] = {}
@@ -108,10 +141,11 @@ def _tidy_layout(tree: PowerTree, src: Element, base: str, out: LayoutResult) ->
         w, h = out.sizes[el.id]
         d = w if horiz else h
         levels[depth] = max(levels.get(depth, 0.0), d)
-        if not el.collapsed:
-            for c in tree.children_of(el.id):
-                if c.id in out.visible:
-                    scan_depth(c, depth + 1)
+        for mate in attached.get(el.id, []):
+            mw, mh = out.sizes[mate.id]
+            levels[depth] = max(levels[depth], mw if horiz else mh)
+        for c in kids_of(el):
+            scan_depth(c, depth + 1)
 
     scan_depth(src, 0)
     depth_center: dict[int, float] = {}
@@ -120,18 +154,28 @@ def _tidy_layout(tree: PowerTree, src: Element, base: str, out: LayoutResult) ->
         depth_center[depth] = cursor + levels[depth] / 2
         cursor += levels[depth] + V_GAP
 
-    def place(el: Element, depth: int, breadth_lo: float):
-        extent = _breadth_extent(el.id, tree, out, horiz, cache)
-        center_b = breadth_lo + extent / 2
+    def set_pos(el_id: str, depth: int, center_b: float):
         center_d = depth_center[depth]
-        out.positions[el.id] = (center_d, center_b) if horiz else (center_b, center_d)
-        if not el.collapsed:
-            b = breadth_lo
-            kids = [c for c in tree.children_of(el.id) if c.id in out.visible]
-            for c in kids:
-                ce = _breadth_extent(c.id, tree, out, horiz, cache)
-                place(c, depth + 1, b)
-                b += ce
+        out.positions[el_id] = ((center_d, center_b) if horiz
+                                else (center_b, center_d))
+
+    def place(el: Element, depth: int, breadth_lo: float):
+        ext = extent(el.id)
+        mates = attached.get(el.id, [])
+        row = breadth_of(el.id) + sum(ATTACH_GAP + breadth_of(m.id)
+                                      for m in mates)
+        row_lo = breadth_lo + ext / 2 - row / 2
+        set_pos(el.id, depth, row_lo + breadth_of(el.id) / 2)
+        b = row_lo + breadth_of(el.id)
+        for mate in mates:
+            b += ATTACH_GAP
+            set_pos(mate.id, depth, b + breadth_of(mate.id) / 2)
+            b += breadth_of(mate.id)
+        cb = breadth_lo
+        for c in kids_of(el):
+            ce = extent(c.id)
+            place(c, depth + 1, cb)
+            cb += ce
 
     place(src, 0, 0.0)
 
@@ -180,21 +224,65 @@ def _compute_bounds(out: LayoutResult) -> None:
     out.bounds = (x0, y0, max(xe) - x0, max(ye) - y0)
 
 
-def block_rects(tree: PowerTree, out: LayoutResult, pad: float = 14.0) -> dict:
-    """Bounding rectangle per block around its visible members."""
-    rects = {}
+def _member_rect(out: LayoutResult, el_id: str) -> tuple:
+    cx, cy = out.positions[el_id]
+    w, h = out.sizes[el_id]
+    return (cx - w / 2, cy - h / 2, w, h)
+
+
+def _rects_close(a: tuple, b: tuple, dist: float) -> bool:
+    ax0, ay0, aw, ah = a
+    bx0, by0, bw, bh = b
+    gap_x = max(bx0 - (ax0 + aw), ax0 - (bx0 + bw), 0.0)
+    gap_y = max(by0 - (ay0 + ah), ay0 - (by0 + bh), 0.0)
+    return gap_x <= dist and gap_y <= dist
+
+
+def block_clusters(tree: PowerTree, out: LayoutResult, pad: float = 14.0) -> dict:
+    """block_id -> [(rect, member_ids, is_primary)] — one outline per
+    contiguous cluster of members, primary = largest cluster (labelled with
+    the aggregate power)."""
+    result: dict = {}
     for bid in tree.blocks:
         members = [e for e in tree.block_members(bid) if e.id in out.visible]
         if not members:
             continue
-        xs, ys, xe, ye = [], [], [], []
-        for el in members:
-            cx, cy = out.positions[el.id]
-            w, h = out.sizes[el.id]
-            xs.append(cx - w / 2)
-            ys.append(cy - h / 2)
-            xe.append(cx + w / 2)
-            ye.append(cy + h / 2)
-        rects[bid] = (min(xs) - pad, min(ys) - pad - 20,
-                      (max(xe) - min(xs)) + pad * 2, (max(ye) - min(ys)) + pad * 2 + 20)
-    return rects
+        rects = {e.id: _member_rect(out, e.id) for e in members}
+        # union-find by proximity
+        parent = {e.id: e.id for e in members}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        ids = list(rects)
+        for i, a in enumerate(ids):
+            for b in ids[i + 1:]:
+                if _rects_close(rects[a], rects[b], CLUSTER_DIST):
+                    parent[find(a)] = find(b)
+        clusters: dict = {}
+        for el_id in ids:
+            clusters.setdefault(find(el_id), []).append(el_id)
+        entries = []
+        for group in clusters.values():
+            xs = [rects[i][0] for i in group]
+            ys = [rects[i][1] for i in group]
+            xe = [rects[i][0] + rects[i][2] for i in group]
+            ye = [rects[i][1] + rects[i][3] for i in group]
+            rect = (min(xs) - pad, min(ys) - pad - 20,
+                    (max(xe) - min(xs)) + pad * 2,
+                    (max(ye) - min(ys)) + pad * 2 + 20)
+            entries.append([rect, group, False])
+        entries.sort(key=lambda e: -len(e[1]))
+        if entries:
+            entries[0][2] = True
+        result[bid] = [tuple(e) for e in entries]
+    return result
+
+
+def block_rects(tree: PowerTree, out: LayoutResult, pad: float = 14.0) -> dict:
+    """Backwards-compatible single-rect view (primary cluster only)."""
+    return {bid: entries[0][0]
+            for bid, entries in block_clusters(tree, out, pad).items()}

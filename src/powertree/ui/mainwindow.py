@@ -153,6 +153,8 @@ class MainWindow(QMainWindow):
             lambda: self._add_element(ElementKind.SERIES))
         act("▣ Block", "Create a block and assign the selected element",
             self._add_block)
+        act("⌸ Template", "Add a device from the template library "
+            "(Zynq, DDR3, PHYs, regulator blocks…)", self._add_from_template)
         tb.addSeparator()
         act("🗑 Delete", "Delete the selected element (with its subtree)",
             self._delete_element, QKeySequence.Delete)
@@ -222,6 +224,11 @@ class MainWindow(QMainWindow):
         add(m_export, "Notes → PDF…", lambda: self._export_notes("pdf"))
         m_file.addSeparator()
         add(m_file, "E&xit", self.close, "Alt+F4")
+
+        m_project = self.menuBar().addMenu("&Project")
+        add(m_project, "Add device from &template…", self._add_from_template,
+            "Ctrl+T")
+        add(m_project, "Global &nets…", self._show_nets, "Ctrl+G")
 
         m_view = self.menuBar().addMenu("&View")
         for dock in (self.explorer_dock, self.props_dock, self.notes_dock,
@@ -434,6 +441,28 @@ class MainWindow(QMainWindow):
         if el is not None:
             el.block_id = block.id
         self.refresh(full=True)
+
+    def _add_from_template(self):
+        tree = self.current_tree
+        if tree is None or tree.source is None:
+            QMessageBox.information(
+                self, "Add from template",
+                "Create a tree with a source first — templates attach to "
+                "existing rails.")
+            return
+        from .template_dialog import TemplateDialog
+        dlg = TemplateDialog(tree, self)
+        if dlg.exec() and dlg.created:
+            self.selected_element_id = dlg.created[0].id
+            self._rebuild_tree_list()
+            self.refresh(full=True)
+            self.canvas.select_element(self.selected_element_id)
+            self.statusBar().showMessage(
+                f"Added {len(dlg.created)} elements from template", 5000)
+
+    def _show_nets(self):
+        from .nets_dialog import NetsDialog
+        NetsDialog(self.project, self).exec()
 
     def _on_collapse_toggle(self, element_id: str):
         tree = self.current_tree
