@@ -1,0 +1,33 @@
+# scratch / working files
+scratch/
+*.tmp
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.spec.bak
+
+# generated demo exports are reproducible; keep iteration reports only
+artifacts/*
+!artifacts/reports/
+!artifacts/reports/*.pdf
+
+# user-generated exports / Office lock files
+~$*
+*_report.xlsx
+*_report.xlsm
+*_report.pdf
+PowerTree_Macros.bas
+
+# OS / editor
+Thumbs.db
+.DS_Store
+*.swp
+
+# Obsidian volatile workspace state (keep app.json)
+.obsidian/workspace*.json
+.obsidian/cache
