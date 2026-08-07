@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "powertree"
-version = "0.5.0"
+version = "0.6.0"
 description = "Electronic circuit power tree analysis: bottom-up power budgeting with min/typ/max corners, margin analysis, flowchart GUI, and PDF/Excel/HTML/CSV reports."
 readme = "README.md"
 requires-python = ">=3.10"

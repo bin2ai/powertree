@@ -40,6 +40,21 @@ Blocks visually group elements into one device with an aggregate power label.
 A block's members can sit on different rails — the canvas outlines each
 cluster and marks continuations with "⋯".
 
+**Collapsed blocks**: right-click a member → *Collapse block* (or View →
+Collapse all blocks) and the whole block becomes ONE summary card showing
+summed P in, internal dissipation (loads + series I²R + converter losses)
+and pass-through power — with labeled **input pins** for every rail feeding
+the block and **output pins** for rails leaving it, so common vs unique
+paths stay explicit. Expand again via the card's ⤢ chip or right-click.
+Collapse state saves with the project and applies to every export.
+
+### Right-click settings
+Right-click anywhere on the canvas for **View settings** (legend, heat map,
+print style, layout, default card detail, collapse/expand all blocks);
+right-click **on an element** for item actions plus **Item settings**
+(per-element card detail); right-click a collapsed block node to expand or
+rename it.
+
 ### Nets are global
 The `signal name` of a source / converter output / series output **defines a
 net for the whole project**. Loads consume the nearest named ancestor rail.

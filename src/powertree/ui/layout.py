@@ -4,6 +4,13 @@ Tidy-tree layout with variable node sizes, TD / LR orientation, collapse
 support and orthogonal (90-degree) edge routing. Guarantees no overlapping
 nodes: each subtree is allotted its full extent along the breadth axis.
 
+Render graph: the layout operates on RENDER NODES — normally one per visible
+element, but a block whose `collapsed` flag is set becomes a single summary
+node ("blk:<id>"): its members are hidden, external children re-attach under
+the summary node, and every distinct feeding rail becomes a labeled INPUT
+pin (extra feeds beyond the primary parent are routed as cross-edges);
+rails leaving the block become labeled OUTPUT pins.
+
 Block-aware refinements:
   - a leaf load that shares a block with a sibling converter (the
     "regulator = converter + its own Iq" pattern) is tucked directly beside
@@ -27,6 +34,10 @@ BLOCK_PAD = 18.0  # extra clearance for nodes that belong to a block
 ATTACH_GAP = 18.0  # gap between a converter and its tucked companion loads
 CLUSTER_DIST = 90.0  # members closer than this merge into one block cluster
 
+BLOCK_PREFIX = "blk:"
+BLOCK_NODE_H = 122.0
+PIN_STUB = 10.0    # visual pin stub length (edges land on the pin)
+
 # card heights per display-detail level
 _HEIGHTS = {
     "minimal": {"node": 62.0, "src": 70.0, "series": 52.0},
@@ -44,214 +55,402 @@ def node_size(el: Element, detail: str = "standard") -> tuple:
     return NODE_W, h["node"]
 
 
+def block_node_size(n_in: int, n_out: int) -> tuple:
+    return max(240.0, 62.0 * max(n_in, n_out, 1) + 40.0), BLOCK_NODE_H
+
+
+@dataclass
+class BlockNodeInfo:
+    """A collapsed block rendered as one node."""
+    block_id: str
+    member_ids: list = field(default_factory=list)
+    # ordered pins: inputs = [(net_label, feeding_render_id)],
+    #               outputs = [(net_label, member_element_id)]
+    inputs: list = field(default_factory=list)
+    outputs: list = field(default_factory=list)
+
+
 @dataclass
 class LayoutResult:
-    positions: dict = field(default_factory=dict)   # id -> (cx, cy)
-    sizes: dict = field(default_factory=dict)       # id -> (w, h)
-    edges: list = field(default_factory=list)       # (parent_id, child_id, [pts])
+    positions: dict = field(default_factory=dict)   # rid -> (cx, cy)
+    sizes: dict = field(default_factory=dict)       # rid -> (w, h)
+    edges: list = field(default_factory=list)       # (src_rid, dst_rid, [pts], label)
     junctions: list = field(default_factory=list)   # (x, y) branch-node dots
-    visible: set = field(default_factory=set)
-    hidden_counts: dict = field(default_factory=dict)  # id -> hidden descendants
+    visible: set = field(default_factory=set)       # visible ELEMENT ids (rendered as cards)
+    render_nodes: set = field(default_factory=set)  # all render node ids
+    block_nodes: dict = field(default_factory=dict)  # rid -> BlockNodeInfo
+    hidden_counts: dict = field(default_factory=dict)  # rid -> hidden descendants
     bounds: tuple = (0.0, 0.0, 0.0, 0.0)            # x, y, w, h
-    details: dict = field(default_factory=dict)     # id -> resolved detail
+    details: dict = field(default_factory=dict)     # rid -> resolved detail
+
+    def pin_point(self, rid: str, side: str, index: int, horiz: bool) -> tuple:
+        """Coordinates where pin `index` of a block node meets the card edge.
+        side: 'in' | 'out'. TD: in=top, out=bottom. LR: in=left, out=right."""
+        cx, cy = self.positions[rid]
+        w, h = self.sizes[rid]
+        info = self.block_nodes[rid]
+        n = max(len(info.inputs if side == "in" else info.outputs), 1)
+        frac = (index + 1) / (n + 1)
+        if horiz:
+            x = cx - w / 2 if side == "in" else cx + w / 2
+            return (x, cy - h / 2 + h * frac)
+        y = cy - h / 2 if side == "in" else cy + h / 2
+        return (cx - w / 2 + w * frac, y)
 
 
-def _companion_map(tree: PowerTree, visible: set) -> dict:
-    """conv_id -> [leaf loads sharing the converter's block AND parent]."""
-    attached: dict[str, list] = {}
-    for el in tree.elements.values():
-        if el.id not in visible or el.parent_id is None:
-            continue
-        siblings = tree.children_of(el.parent_id)
-        if el.kind == ElementKind.CONVERTER and el.block_id:
-            mates = [s for s in siblings
-                     if s.id != el.id and s.id in visible
-                     and s.kind == ElementKind.LOAD
-                     and s.block_id == el.block_id]
-            if mates:
-                attached[el.id] = mates
-    return attached
+def _net_of(tree: PowerTree, el: Element) -> str:
+    """Named output rail of an element (walking up when unnamed)."""
+    cur = el
+    while cur is not None:
+        if cur.kind in (ElementKind.SOURCE, ElementKind.CONVERTER,
+                        ElementKind.SERIES) and cur.signal_name:
+            return cur.signal_name
+        cur = tree.parent_of(cur)
+    return el.name
 
 
 def compute_layout(tree: PowerTree, orientation: str = "TD",
                    respect_custom: bool = True,
                    detail_default: str = "standard") -> LayoutResult:
-    """orientation: 'TD' (top-down), 'LR' (left-right) or 'custom'.
-
-    In 'custom' mode nodes keep their stored (x, y) if present; nodes without
-    a stored position fall back to an automatic TD layout so nothing stacks.
-    detail_default cascades app -> tree -> element (see settings.resolve_detail).
-    """
+    """orientation: 'TD' (top-down), 'LR' (left-right) or 'custom'."""
     from ..settings import resolve_detail
     out = LayoutResult()
     src = tree.source
     if src is None:
         return out
 
-    # visible set honouring collapse
+    # ---- 1. visible elements (element-level collapse chains) --------------
+    visible_elements: set = set()
+
     def collect(el: Element):
-        out.visible.add(el.id)
-        detail = resolve_detail(detail_default, tree, el)
-        out.details[el.id] = detail
-        out.sizes[el.id] = node_size(el, detail)
-        kids = tree.children_of(el.id)
+        visible_elements.add(el.id)
         if el.collapsed:
-            out.hidden_counts[el.id] = len(tree.descendants_of(el.id))
             return
-        for c in kids:
+        for c in tree.children_of(el.id):
             collect(c)
 
     collect(src)
 
+    # ---- 2. collapsed blocks -> render-node mapping -----------------------
+    member_block: dict = {}
+    for bid, block in tree.blocks.items():
+        if not block.collapsed:
+            continue
+        members = [m for m in tree.block_members(bid)
+                   if m.id in visible_elements and m.id != src.id]
+        if not members:
+            continue
+        rid = BLOCK_PREFIX + bid
+        info = BlockNodeInfo(block_id=bid,
+                             member_ids=[m.id for m in members])
+        out.block_nodes[rid] = info
+        for m in members:
+            member_block[m.id] = rid
+
+    def render_id(el_id: str) -> str:
+        return member_block.get(el_id, el_id)
+
+    # ---- 3. render graph: child_map + cross edges -------------------------
+    child_map: dict = {}
+    parent_of: dict = {}
+    cross: list = []            # (parent_rid, child_rid) extra feeds
+
+    def link(pr: str, cr: str):
+        if pr == cr:
+            return
+        if cr in parent_of:
+            if parent_of[cr] != pr and (pr, cr) not in cross \
+                    and cr not in child_map.get(pr, []):
+                cross.append((pr, cr))
+            return
+        parent_of[cr] = pr
+        child_map.setdefault(pr, []).append(cr)
+
+    def walk(el: Element):
+        for c in tree.children_of(el.id):
+            if c.id not in visible_elements:
+                continue
+            link(render_id(el.id), render_id(c.id))
+            walk(c)
+
+    root_rid = render_id(src.id)
+    parent_of[root_rid] = None
+    walk(src)
+    out.render_nodes = {root_rid} | set(parent_of)
+
+    # ---- 4. block pin lists ----------------------------------------------
+    for rid, info in out.block_nodes.items():
+        if rid not in out.render_nodes:
+            continue
+        member_set = set(info.member_ids)
+        seen_in: dict = {}
+        seen_out: dict = {}
+        for mid in info.member_ids:
+            m = tree.elements[mid]
+            parent = tree.parent_of(m)
+            if parent is not None and parent.id not in member_set and \
+                    parent.id in visible_elements:
+                pr = render_id(parent.id)
+                net = _net_of(tree, parent)
+                seen_in.setdefault(pr, net)
+            for c in tree.children_of(mid):
+                if c.id in member_set or c.id not in visible_elements:
+                    continue
+                net = m.signal_name or _net_of(tree, m)
+                seen_out.setdefault(mid, net)
+        info.inputs = sorted(((net, pr) for pr, net in seen_in.items()),
+                             key=lambda t: t[0])
+        info.outputs = sorted(((net, mid) for mid, net in seen_out.items()),
+                              key=lambda t: t[0])
+
+    # ---- 5. sizes / details / hidden counts -------------------------------
+    for rid in out.render_nodes:
+        if rid.startswith(BLOCK_PREFIX):
+            info = out.block_nodes[rid]
+            out.sizes[rid] = block_node_size(len(info.inputs),
+                                             len(info.outputs))
+            hidden = set(info.member_ids)
+            for mid in info.member_ids:
+                hidden |= {d.id for d in tree.descendants_of(mid)
+                           if render_id(d.id) == rid or
+                           d.id not in visible_elements}
+            out.hidden_counts[rid] = len(hidden)
+        else:
+            el = tree.elements[rid]
+            detail = resolve_detail(detail_default, tree, el)
+            out.details[rid] = detail
+            out.sizes[rid] = node_size(el, detail)
+            out.visible.add(rid)
+            if el.collapsed:
+                out.hidden_counts[rid] = len(tree.descendants_of(rid))
+
+    # ---- 6. companion tucking (converter + same-block Iq load) ------------
+    attached: dict = {}
+    attached_ids: set = set()
+    for pr, kids in child_map.items():
+        for rid in kids:
+            if rid.startswith(BLOCK_PREFIX):
+                continue
+            el = tree.elements[rid]
+            if el.kind == ElementKind.CONVERTER and el.block_id and \
+                    not tree.blocks.get(el.block_id, None) is None and \
+                    not tree.blocks[el.block_id].collapsed:
+                mates = [s for s in kids
+                         if s != rid and not s.startswith(BLOCK_PREFIX)
+                         and tree.elements[s].kind == ElementKind.LOAD
+                         and tree.elements[s].block_id == el.block_id
+                         and s not in attached_ids]
+                if mates:
+                    attached[rid] = mates
+                    attached_ids |= set(mates)
+
+    # ---- 7. tidy layout over the render graph -----------------------------
     base = "LR" if orientation == "LR" else "TD"
-    _tidy_layout(tree, src, base, out)
-
-    if orientation == "custom" and respect_custom:
-        for el_id in out.visible:
-            el = tree.elements[el_id]
-            if el.x is not None and el.y is not None:
-                out.positions[el_id] = (el.x, el.y)
-
-    _route_edges(tree, base if orientation != "custom" else "TD", out)
-    _compute_bounds(out)
-    return out
-
-
-def _tidy_layout(tree: PowerTree, src: Element, base: str,
-                 out: LayoutResult) -> None:
     horiz = (base == "LR")
-    attached = _companion_map(tree, out.visible)
-    attached_ids = {m.id for mates in attached.values() for m in mates}
     cache: dict = {}
 
-    def breadth_of(el_id: str) -> float:
-        w, h = out.sizes[el_id]
+    def breadth_of(rid: str) -> float:
+        w, h = out.sizes[rid]
         return h if horiz else w
 
-    def kids_of(el: Element) -> list:
-        if el.collapsed:
-            return []
-        return [c for c in tree.children_of(el.id)
-                if c.id in out.visible and c.id not in attached_ids]
+    def kids_of(rid: str) -> list:
+        return [c for c in child_map.get(rid, []) if c not in attached_ids]
 
-    def extent(el_id: str) -> float:
-        if el_id in cache:
-            return cache[el_id]
-        el = tree.elements[el_id]
-        own = breadth_of(el_id) + (BLOCK_PAD * 2 if el.block_id else 0.0)
-        for mate in attached.get(el_id, []):
-            own += ATTACH_GAP + breadth_of(mate.id)
-        kids = kids_of(el)
-        kid_total = sum(extent(c.id) for c in kids)
-        cache[el_id] = max(own + H_GAP, kid_total)
-        return cache[el_id]
+    def in_block(rid: str) -> bool:
+        return (not rid.startswith(BLOCK_PREFIX)
+                and tree.elements[rid].block_id is not None)
 
-    # depth positions: cumulative max node depth-size per level
-    levels: dict[int, float] = {}
+    def extent(rid: str) -> float:
+        if rid in cache:
+            return cache[rid]
+        own = breadth_of(rid) + (BLOCK_PAD * 2 if in_block(rid) else 0.0)
+        for mate in attached.get(rid, []):
+            own += ATTACH_GAP + breadth_of(mate)
+        kid_total = sum(extent(c) for c in kids_of(rid))
+        cache[rid] = max(own + H_GAP, kid_total)
+        return cache[rid]
 
-    def scan_depth(el: Element, depth: int):
-        w, h = out.sizes[el.id]
+    levels: dict = {}
+
+    def scan_depth(rid: str, depth: int):
+        w, h = out.sizes[rid]
         d = w if horiz else h
         levels[depth] = max(levels.get(depth, 0.0), d)
-        for mate in attached.get(el.id, []):
-            mw, mh = out.sizes[mate.id]
+        for mate in attached.get(rid, []):
+            mw, mh = out.sizes[mate]
             levels[depth] = max(levels[depth], mw if horiz else mh)
-        for c in kids_of(el):
+        for c in kids_of(rid):
             scan_depth(c, depth + 1)
 
-    scan_depth(src, 0)
-    depth_center: dict[int, float] = {}
+    scan_depth(root_rid, 0)
+    depth_center: dict = {}
     cursor = 0.0
     for depth in sorted(levels):
         depth_center[depth] = cursor + levels[depth] / 2
         cursor += levels[depth] + V_GAP
 
-    def set_pos(el_id: str, depth: int, center_b: float):
+    def set_pos(rid: str, depth: int, center_b: float):
         center_d = depth_center[depth]
-        out.positions[el_id] = ((center_d, center_b) if horiz
-                                else (center_b, center_d))
+        out.positions[rid] = ((center_d, center_b) if horiz
+                              else (center_b, center_d))
 
-    def place(el: Element, depth: int, breadth_lo: float):
-        ext = extent(el.id)
-        mates = attached.get(el.id, [])
-        row = breadth_of(el.id) + sum(ATTACH_GAP + breadth_of(m.id)
-                                      for m in mates)
+    def place(rid: str, depth: int, breadth_lo: float):
+        ext = extent(rid)
+        mates = attached.get(rid, [])
+        row = breadth_of(rid) + sum(ATTACH_GAP + breadth_of(m) for m in mates)
         row_lo = breadth_lo + ext / 2 - row / 2
-        set_pos(el.id, depth, row_lo + breadth_of(el.id) / 2)
-        b = row_lo + breadth_of(el.id)
+        set_pos(rid, depth, row_lo + breadth_of(rid) / 2)
+        b = row_lo + breadth_of(rid)
         for mate in mates:
             b += ATTACH_GAP
-            set_pos(mate.id, depth, b + breadth_of(mate.id) / 2)
-            b += breadth_of(mate.id)
+            set_pos(mate, depth, b + breadth_of(mate) / 2)
+            b += breadth_of(mate)
         cb = breadth_lo
-        for c in kids_of(el):
-            ce = extent(c.id)
+        for c in kids_of(rid):
+            ce = extent(c)
             place(c, depth + 1, cb)
             cb += ce
 
-    place(src, 0, 0.0)
+    place(root_rid, 0, 0.0)
 
-
-def _route_edges(tree: PowerTree, base: str, out: LayoutResult) -> None:
-    """Bus-style orthogonal routing: the parent's feed drops to a mid-level
-    bus, fans out horizontally, then enters each child — with junction dots
-    at every T so branched rails read like a schematic."""
-    horiz = (base == "LR")
-    children_by_parent: dict = {}
-    for el_id in out.visible:
-        el = tree.elements[el_id]
-        if el.parent_id and el.parent_id in out.visible:
-            children_by_parent.setdefault(el.parent_id, []).append(el_id)
-
-    for pid, kids in children_by_parent.items():
-        px, py = out.positions[pid]
-        pw, ph = out.sizes[pid]
-        # shared bus level: midway between parent exit and nearest child entry
-        if horiz:
-            start_d = px + pw / 2
-            entries = [out.positions[c][0] - out.sizes[c][0] / 2 for c in kids]
-            bus = (start_d + min(entries)) / 2
-        else:
-            start_d = py + ph / 2
-            entries = [out.positions[c][1] - out.sizes[c][1] / 2 for c in kids]
-            bus = (start_d + min(entries)) / 2
-        branch_points = []
-        for c in kids:
-            cx, cy = out.positions[c]
-            cw, ch = out.sizes[c]
-            if horiz:
-                start = (start_d, py)
-                end = (cx - cw / 2, cy)
-                pts = [start, (bus, py), (bus, cy), end]
-                branch_points.append((bus, cy))
+    # ---- 8. custom positions ---------------------------------------------
+    if orientation == "custom" and respect_custom:
+        for rid in out.render_nodes:
+            if rid.startswith(BLOCK_PREFIX):
+                block = tree.blocks[out.block_nodes[rid].block_id]
+                if block.x is not None and block.y is not None:
+                    out.positions[rid] = (block.x, block.y)
             else:
-                start = (px, start_d)
-                end = (cx, cy - ch / 2)
-                pts = [start, (px, bus), (cx, bus), end]
-                branch_points.append((cx, bus))
-            clean = [pts[0]]
-            for p in pts[1:]:
-                if abs(p[0] - clean[-1][0]) > 0.5 or \
-                        abs(p[1] - clean[-1][1]) > 0.5:
-                    clean.append(p)
-            if len(clean) < 2:
-                clean = [start, end]
-            out.edges.append((pid, c, clean))
-        # junction dots only where the rail actually branches
-        if len(kids) > 1:
-            trunk = (bus, py) if horiz else (px, bus)
-            out.junctions.append(trunk)
-            for bp in branch_points:
-                if abs(bp[0] - trunk[0]) > 0.5 or abs(bp[1] - trunk[1]) > 0.5:
-                    out.junctions.append(bp)
+                el = tree.elements[rid]
+                if el.x is not None and el.y is not None:
+                    out.positions[rid] = (el.x, el.y)
+
+    # ---- 9. routing --------------------------------------------------------
+    _route_edges(tree, base, out, child_map, cross, member_block, horiz)
+    _compute_bounds(out)
+    return out
+
+
+def _edge_endpoints(tree: PowerTree, out: LayoutResult, pr: str, cr: str,
+                    member_block: dict, horiz: bool):
+    """(start, end, label) — pin-aware for block nodes."""
+    px, py = out.positions[pr]
+    pw, ph = out.sizes[pr]
+    cx, cy = out.positions[cr]
+    cw, ch = out.sizes[cr]
+    label = ""
+    # start: parent exit
+    if pr.startswith(BLOCK_PREFIX):
+        info = out.block_nodes[pr]
+        # which member feeds cr? cr's tree-parent (or an ancestor) is a member
+        member_id = None
+        probe = tree.elements.get(cr) if not cr.startswith(BLOCK_PREFIX) \
+            else None
+        if probe is not None:
+            p = tree.parent_of(probe)
+            while p is not None:
+                if p.id in info.member_ids:
+                    member_id = p.id
+                    break
+                p = tree.parent_of(p)
+        else:                      # blk -> blk: find member feeding any child member
+            cinfo = out.block_nodes[cr]
+            for mid in cinfo.member_ids:
+                p = tree.parent_of(tree.elements[mid])
+                while p is not None:
+                    if p.id in info.member_ids:
+                        member_id = p.id
+                        break
+                    p = tree.parent_of(p)
+                if member_id:
+                    break
+        idx = 0
+        for i, (net, mid) in enumerate(info.outputs):
+            if mid == member_id:
+                idx = i
+                label = net
+                break
+        start = out.pin_point(pr, "out", idx, horiz)
+    else:
+        el = tree.elements[pr]
+        if el.kind == ElementKind.CONVERTER:
+            label = el.signal_name or ""
+        elif el.kind == ElementKind.SOURCE:
+            label = el.signal_name or ""
+        elif el.kind == ElementKind.SERIES:
+            label = el.signal_name or ""
+        start = (px + pw / 2, py) if horiz else (px, py + ph / 2)
+    # end: child entry
+    if cr.startswith(BLOCK_PREFIX):
+        cinfo = out.block_nodes[cr]
+        idx = 0
+        for i, (net, feeder) in enumerate(cinfo.inputs):
+            if feeder == pr:
+                idx = i
+                if not label:
+                    label = net
+                break
+        end = out.pin_point(cr, "in", idx, horiz)
+    else:
+        end = (cx - cw / 2, cy) if horiz else (cx, cy - ch / 2)
+    return start, end, label
+
+
+def _route_edges(tree: PowerTree, base: str, out: LayoutResult,
+                 child_map: dict, cross: list, member_block: dict,
+                 horiz: bool) -> None:
+    """Bus-style orthogonal routing with junction dots; edges land on block
+    pins when an endpoint is a collapsed-block node."""
+
+    def route(start, end):
+        if horiz:
+            bus = (start[0] + end[0]) / 2
+            pts = [start, (bus, start[1]), (bus, end[1]), end]
+        else:
+            bus = (start[1] + end[1]) / 2
+            pts = [start, (start[0], bus), (end[0], bus), end]
+        clean = [pts[0]]
+        for p in pts[1:]:
+            if abs(p[0] - clean[-1][0]) > 0.5 or abs(p[1] - clean[-1][1]) > 0.5:
+                clean.append(p)
+        return clean if len(clean) >= 2 else [start, end]
+
+    for pr, kids in child_map.items():
+        groups: dict = {}
+        for cr in kids:
+            start, end, label = _edge_endpoints(tree, out, pr, cr,
+                                                member_block, horiz)
+            groups.setdefault(start, []).append((cr, end, label))
+        for start, entries in groups.items():
+            for cr, end, label in entries:
+                out.edges.append((pr, cr, route(start, end), label))
+            if len(entries) > 1:
+                if horiz:
+                    bus = (start[0] + min(e[1][0] for e in entries)) / 2
+                    trunk = (bus, start[1])
+                    branch = [(bus, e[1][1]) for e in entries]
+                else:
+                    bus = (start[1] + min(e[1][1] for e in entries)) / 2
+                    trunk = (start[0], bus)
+                    branch = [(e[1][0], bus) for e in entries]
+                out.junctions.append(trunk)
+                for bp in branch:
+                    if abs(bp[0] - trunk[0]) > 0.5 or \
+                            abs(bp[1] - trunk[1]) > 0.5:
+                        out.junctions.append(bp)
+
+    for pr, cr in cross:
+        start, end, label = _edge_endpoints(tree, out, pr, cr,
+                                            member_block, horiz)
+        out.edges.append((pr, cr, route(start, end), label))
 
 
 def _compute_bounds(out: LayoutResult) -> None:
     if not out.positions:
         return
     xs, ys, xe, ye = [], [], [], []
-    for el_id, (cx, cy) in out.positions.items():
-        w, h = out.sizes[el_id]
+    for rid, (cx, cy) in out.positions.items():
+        w, h = out.sizes[rid]
         xs.append(cx - w / 2)
         ys.append(cy - h / 2)
         xe.append(cx + w / 2)
@@ -276,15 +475,17 @@ def _rects_close(a: tuple, b: tuple, dist: float) -> bool:
 
 def block_clusters(tree: PowerTree, out: LayoutResult, pad: float = 14.0) -> dict:
     """block_id -> [(rect, member_ids, is_primary)] — one outline per
-    contiguous cluster of members, primary = largest cluster (labelled with
-    the aggregate power)."""
+    contiguous cluster of members (collapsed blocks render as summary nodes
+    instead and are skipped here)."""
     result: dict = {}
-    for bid in tree.blocks:
-        members = [e for e in tree.block_members(bid) if e.id in out.visible]
+    for bid, block in tree.blocks.items():
+        if block.collapsed:
+            continue
+        members = [e for e in tree.block_members(bid)
+                   if e.id in out.visible and e.id in out.positions]
         if not members:
             continue
         rects = {e.id: _member_rect(out, e.id) for e in members}
-        # union-find by proximity
         parent = {e.id: e.id for e in members}
 
         def find(x):

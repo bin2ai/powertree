@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.0 — 2026-08-07
+
+### Collapsed block summary nodes
+- Any block can collapse into ONE summary card: summed **P in**, internal
+  **dissipation** (loads consumed + series I²R + converter losses) and
+  **pass-through** power, member count, and a worst-severity badge.
+- The card carries labeled **input pins** (every distinct rail feeding the
+  block — common vs unique paths are explicit) and **output pins** (rails
+  leaving the block); edges land on the pins, multi-rail feeds route as
+  cross-edges, and collapsed blocks can feed other collapsed blocks
+  pin-to-pin. Works in TD/LR/custom layouts and all exports; collapse
+  state persists in the project file.
+- Toggle via the card's ⤢ chip, right-click menus, or View → Collapse/
+  Expand all blocks.
+
+### Right-click settings, two levels
+- Background right-click → **View settings** submenu: legend / heat map /
+  print style, layout, app-default card detail, collapse/expand all
+  blocks, full Settings dialog.
+- Right-click on an element → **Item settings** (per-element card detail
+  override) plus add-under/duplicate/collapse/docs/delete; on a block
+  summary node → expand/rename; View settings available everywhere.
+
 ## 0.5.0 — 2026-08-07
 
 First public release. Built and hardened across 13 tracked iterations

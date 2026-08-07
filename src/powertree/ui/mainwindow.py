@@ -121,6 +121,7 @@ class MainWindow(QMainWindow):
         self.canvas = PowerCanvas()
         self.canvas.elementSelected.connect(self._on_canvas_select)
         self.canvas.collapseToggled.connect(self._on_collapse_toggle)
+        self.canvas.blockExpandRequested.connect(self._toggle_block_collapsed)
         self.canvas.nodeMoved.connect(self._mark_dirty)
         self.canvas.contextRequested.connect(self._canvas_context_menu)
         self.list_view = TreeListView()
@@ -355,6 +356,11 @@ class MainWindow(QMainWindow):
         m_view.addAction(self.legend_action)
         m_view.addAction(self.heat_action)
         m_view.addAction(self.print_action)
+        m_view.addSeparator()
+        add(m_view, "Collapse all &blocks to summary nodes",
+            lambda: self._set_all_blocks_collapsed(True))
+        add(m_view, "Expand all bloc&ks",
+            lambda: self._set_all_blocks_collapsed(False))
         m_view.addSeparator()
         for dock in (self.explorer_dock, self.props_dock, self.notes_dock,
                      self.findings_dock):
@@ -969,13 +975,87 @@ class MainWindow(QMainWindow):
             return
         self.notes.link_current_to(el.id, el.name)
 
-    def _canvas_context_menu(self, element_id: str, global_pos):
+    def _toggle_block_collapsed(self, block_id: str, collapsed=None):
+        tree = self.current_tree
+        block = tree.blocks.get(block_id) if tree else None
+        if block is None:
+            return
+        block.collapsed = (not block.collapsed) if collapsed is None \
+            else collapsed
+        self.refresh(full=True)
+        state = "collapsed to summary node" if block.collapsed else "expanded"
+        self.statusBar().showMessage(f"Block '{block.name}' {state}", 4000)
+
+    def _set_all_blocks_collapsed(self, collapsed: bool):
+        tree = self.current_tree
+        if not tree:
+            return
+        for block in tree.blocks.values():
+            block.collapsed = collapsed
+        self.refresh(full=True)
+        self.canvas.fit()
+
+    def _add_view_settings_menu(self, menu):
+        """'View settings' submenu — reachable from any right-click."""
+        sub = menu.addMenu("👁 View settings")
+        sub.addAction(self.legend_action)
+        sub.addAction(self.heat_action)
+        sub.addAction(self.print_action)
+        sub.addSeparator()
+        lay_menu = sub.addMenu("Layout")
+        for i, label in enumerate(["Top-down", "Left-right", "Custom (drag)"]):
+            act = lay_menu.addAction(
+                label, lambda idx=i: self.orient_combo.setCurrentIndex(idx))
+            act.setCheckable(True)
+            act.setChecked(self.orient_combo.currentIndex() == i)
+        detail_menu = sub.addMenu("Card detail (app default)")
+        current = self.settings.get("detail_default")
+        for level in DETAIL_LEVELS:
+            act = detail_menu.addAction(
+                level, lambda lv=level: self._set_app_detail(lv))
+            act.setCheckable(True)
+            act.setChecked(current == level)
+        sub.addSeparator()
+        sub.addAction("Collapse all blocks",
+                      lambda: self._set_all_blocks_collapsed(True))
+        sub.addAction("Expand all blocks",
+                      lambda: self._set_all_blocks_collapsed(False))
+        sub.addSeparator()
+        sub.addAction("All settings… (Ctrl+,)", self._open_settings)
+        return sub
+
+    def _set_app_detail(self, level: str):
+        self.settings.set("detail_default", level)
+        self._apply_settings()
+
+    def _build_canvas_menu(self, rid: str):
+        """Context menu for a canvas right-click: item-specific actions when
+        over an element or a collapsed-block node, view/general actions on
+        the background — View settings are available everywhere."""
         from PySide6.QtWidgets import QMenu
         tree = self.current_tree
         if tree is None:
-            return
+            return None
         menu = QMenu(self)
-        el = tree.elements.get(element_id) if element_id else None
+
+        if rid.startswith("blk:"):
+            block = tree.blocks.get(rid[4:])
+            if block is not None:
+                menu.addAction(f"⤢ Expand block '{block.name}'",
+                               lambda: self._toggle_block_collapsed(block.id))
+
+                def rename():
+                    name, ok = QInputDialog.getText(
+                        self, "Rename block", "Name:", text=block.name)
+                    if ok and name:
+                        block.name = name
+                        self.refresh(full=True)
+                menu.addAction("Rename block…", rename)
+                menu.addSeparator()
+            self._add_view_settings_menu(menu)
+            return menu
+
+        el = tree.elements.get(rid) if rid else None
         if el is None:
             if tree.source is None:
                 menu.addAction("⊕ Add source…",
@@ -983,29 +1063,54 @@ class MainWindow(QMainWindow):
             menu.addAction("⌸ Add device from template…",
                            self._add_from_template)
             menu.addAction("⛶ Fit view", self.canvas.fit)
-        else:
-            self.selected_element_id = el.id
-            if tree.can_parent(el):
-                menu.addAction("⊞ Add converter under this",
-                               lambda: self._add_element(
-                                   ElementKind.CONVERTER))
-                menu.addAction("◎ Add load under this",
-                               lambda: self._add_element(ElementKind.LOAD))
-                menu.addAction("≡ Add series element under this",
-                               lambda: self._add_element(ElementKind.SERIES))
-                menu.addSeparator()
-            if el.kind != ElementKind.SOURCE:
-                menu.addAction("Duplicate (with subtree)",
-                               self._duplicate_element)
-            if tree.children_of(el.id):
-                label = "Expand" if el.collapsed else "Collapse"
-                menu.addAction(f"{label} branch",
-                               lambda: self._on_collapse_toggle(el.id))
             menu.addSeparator()
-            menu.addAction("📝 Edit documentation…",
-                           lambda: self._edit_docs_for(el.id))
-            menu.addAction("🗑 Delete…", self._delete_element)
-        menu.exec(global_pos)
+            self._add_view_settings_menu(menu)
+            return menu
+
+        self.selected_element_id = el.id
+        if tree.can_parent(el):
+            menu.addAction("⊞ Add converter under this",
+                           lambda: self._add_element(ElementKind.CONVERTER))
+            menu.addAction("◎ Add load under this",
+                           lambda: self._add_element(ElementKind.LOAD))
+            menu.addAction("≡ Add series element under this",
+                           lambda: self._add_element(ElementKind.SERIES))
+            menu.addSeparator()
+        if el.kind != ElementKind.SOURCE:
+            menu.addAction("Duplicate (with subtree)",
+                           self._duplicate_element)
+        if tree.children_of(el.id):
+            label = "Expand" if el.collapsed else "Collapse"
+            menu.addAction(f"{label} branch",
+                           lambda: self._on_collapse_toggle(el.id))
+        if el.block_id and el.block_id in tree.blocks:
+            block = tree.blocks[el.block_id]
+            menu.addAction(
+                f"▣ Collapse block '{block.name}' to summary node",
+                lambda: self._toggle_block_collapsed(block.id, True))
+        # item-specific display settings
+        item_menu = menu.addMenu("⚙ Item settings")
+        detail_menu = item_menu.addMenu("Card detail")
+        for value, label in [(None, "(inherit)"), ("minimal", "minimal"),
+                             ("standard", "standard"),
+                             ("exhaustive", "exhaustive")]:
+            act = detail_menu.addAction(
+                label, lambda v=value: (setattr(el, "display_detail", v),
+                                        self.refresh(full=True)))
+            act.setCheckable(True)
+            act.setChecked(el.display_detail == value)
+        menu.addSeparator()
+        menu.addAction("📝 Edit documentation…",
+                       lambda: self._edit_docs_for(el.id))
+        menu.addAction("🗑 Delete…", self._delete_element)
+        menu.addSeparator()
+        self._add_view_settings_menu(menu)
+        return menu
+
+    def _canvas_context_menu(self, rid: str, global_pos):
+        menu = self._build_canvas_menu(rid)
+        if menu is not None:
+            menu.exec(global_pos)
 
     def _duplicate_element(self):
         el = self._selected_element()

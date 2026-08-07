@@ -335,6 +335,170 @@ class NodeItem(QGraphicsObject):
         return super().itemChange(change, value)
 
 
+def block_summary_stats(tree: PowerTree, results: TreeResults, info) -> dict:
+    """Aggregate figures for a collapsed block: input power, internal
+    dissipation (loads consumed + series I²R + converter loss) and the
+    pass-through power leaving on output pins."""
+    p_in = 0.0
+    member_set = set(info.member_ids)
+    diss = 0.0
+    severity = None
+    rank = {"error": 2, "warn": 1}
+    for mid in info.member_ids:
+        el = tree.elements[mid]
+        res = results.get(mid, "typ")
+        parent = tree.parent_of(el)
+        if parent is None or parent.id not in member_set:
+            p_in += res.p_in
+        if el.kind == ElementKind.LOAD:
+            diss += res.p_in
+        else:
+            diss += res.p_loss
+        sev = results.worst_severity(mid)
+        if sev and rank.get(sev, 0) > rank.get(severity, 0):
+            severity = sev
+    return {"p_in": p_in, "dissipation": diss,
+            "p_through": max(p_in - diss, 0.0), "severity": severity}
+
+
+class BlockSummaryItem(QGraphicsObject):
+    """A collapsed block: one card with summed power figures and labeled
+    input/output pins showing the common/unique rails in and out."""
+
+    def __init__(self, block, info, stats: dict, size: tuple,
+                 hidden_count: int, canvas: "PowerCanvas", heat=None):
+        super().__init__()
+        self.block = block
+        self.info = info
+        self.rid = "blk:" + block.id
+        self.el = None
+        self.stats = stats
+        self.w, self.h = size
+        self.hidden_count = hidden_count
+        self.canvas = canvas
+        self.heat = heat
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        pins = ", ".join(n for n, _ in info.inputs) or "—"
+        pouts = ", ".join(n for n, _ in info.outputs) or "—"
+        self.setToolTip(
+            f"<b>{block.name}</b> (collapsed block)<br>"
+            f"{hidden_count} elements inside<br>"
+            f"P in: {fmt_si(stats['p_in'], 'W')} · dissipated: "
+            f"{fmt_si(stats['dissipation'], 'W')} · pass-through: "
+            f"{fmt_si(stats['p_through'], 'W')}<br>"
+            f"inputs: {pins}<br>outputs: {pouts}")
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(-4, -14, self.w + 8, self.h + 28)
+
+    def chip_rect(self) -> QRectF:
+        return QRectF(self.w - 34, self.h - 22, 30, 17)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = QRectF(0, 0, self.w, self.h)
+        color = heat_color(self.heat) if self.heat is not None \
+            else QColor(self.block.color)
+
+        grad = QLinearGradient(0, 0, 0, self.h)
+        grad.setColorAt(0.0, Theme.card.lighter(114))
+        grad.setColorAt(1.0, Theme.card)
+        painter.setBrush(QBrush(grad))
+        pen = QPen(color, 2.2)
+        if self.isSelected():
+            pen = QPen(Theme.select, 2.6)
+        painter.setPen(pen)
+        painter.drawRoundedRect(rect, 10, 10)
+        painter.setPen(QPen(color.darker(115), 1.0, Qt.DashLine))
+        painter.drawRoundedRect(rect.adjusted(3, 3, -3, -3), 8, 8)
+
+        # pins: input (top) and output (bottom) stubs with net labels
+        n_in = max(len(self.info.inputs), 1)
+        painter.setFont(QFont("Consolas", 6))
+        for i, (net, _src) in enumerate(self.info.inputs):
+            x = self.w * (i + 1) / (n_in + 1)
+            painter.setBrush(QBrush(Theme.edge))
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(QRectF(x - 3.5, -1, 7, 8))
+            painter.setPen(QPen(Theme.edge_text))
+            painter.drawText(QRectF(x - 44, 8, 88, 9), Qt.AlignCenter,
+                             net[:16])
+        n_out = max(len(self.info.outputs), 1)
+        for i, (net, _mid) in enumerate(self.info.outputs):
+            x = self.w * (i + 1) / (n_out + 1)
+            painter.setBrush(QBrush(Theme.edge))
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(QRectF(x - 3.5, self.h - 7, 7, 8))
+            painter.setPen(QPen(Theme.edge_text))
+            painter.drawText(QRectF(x - 44, self.h - 17, 88, 9),
+                             Qt.AlignCenter, net[:16])
+
+        # header
+        painter.setFont(QFont("Segoe UI", 8, QFont.Bold))
+        painter.setPen(QPen(color))
+        painter.drawText(QRectF(12, 18, self.w - 24, 14),
+                         Qt.AlignLeft | Qt.AlignVCenter, "▣ BLOCK")
+        painter.setPen(QPen(Theme.text_dim))
+        painter.setFont(QFont("Segoe UI", 7))
+        painter.drawText(QRectF(12, 18, self.w - 24, 14),
+                         Qt.AlignRight | Qt.AlignVCenter,
+                         f"{self.hidden_count} elements")
+        painter.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        painter.setPen(QPen(Theme.text))
+        fm = QFontMetricsF(painter.font())
+        painter.drawText(QRectF(12, 32, self.w - 24, 17),
+                         Qt.AlignLeft | Qt.AlignVCenter,
+                         fm.elidedText(self.block.name, Qt.ElideRight,
+                                       self.w - 24))
+        painter.setFont(QFont("Consolas", 8))
+        s = self.stats
+        lines = [
+            f"P in {fmt_si(s['p_in'], 'W')} · diss "
+            f"{fmt_si(s['dissipation'], 'W')}",
+            f"pass-through {fmt_si(s['p_through'], 'W')}",
+        ]
+        fm4 = QFontMetricsF(painter.font())
+        y = 52.0
+        for i, line in enumerate(lines):
+            painter.setPen(QPen(Theme.text if i == 0 else Theme.text_dim))
+            painter.drawText(QRectF(12, y, self.w - 24, 13), Qt.AlignVCenter,
+                             fm4.elidedText(line, Qt.ElideRight, self.w - 24))
+            y += 14.5
+
+        # warning badge from members
+        if s["severity"] in ("error", "warn"):
+            c = Theme.error if s["severity"] == "error" else Theme.warn
+            painter.setBrush(QBrush(c))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(QPointF(self.w - 14, 14), 6.5, 6.5)
+            painter.setPen(QPen(Theme.bg, 1.6))
+            painter.setFont(QFont("Segoe UI", 8, QFont.Bold))
+            painter.drawText(QRectF(self.w - 21, 7, 14, 14), Qt.AlignCenter,
+                             "!")
+
+        # expand chip
+        chip = self.chip_rect()
+        painter.setBrush(QBrush(Theme.card_edge))
+        painter.setPen(QPen(Theme.text_dim, 0.8))
+        painter.drawRoundedRect(chip, 4, 4)
+        painter.setPen(QPen(Theme.text))
+        painter.setFont(QFont("Segoe UI", 7, QFont.Bold))
+        painter.drawText(chip, Qt.AlignCenter, "⤢")
+
+    def mousePressEvent(self, event):
+        if self.chip_rect().contains(event.pos()):
+            self.canvas.blockExpandRequested.emit(self.block.id)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.ItemPositionHasChanged:
+            self.canvas.block_dragged(self)
+        return super().itemChange(change, value)
+
+
 class BlockItem(QGraphicsPathItem):
     def __init__(self, block, rect: tuple, power_text: str,
                  continued: bool = False):
@@ -417,8 +581,9 @@ class PowerCanvas(QGraphicsView):
 
     elementSelected = Signal(str)
     collapseToggled = Signal(str)
+    blockExpandRequested = Signal(str)       # block id (expand summary node)
     nodeMoved = Signal()
-    contextRequested = Signal(str, object)   # element id ('' = canvas), QPoint
+    contextRequested = Signal(str, object)   # rid ('' = canvas, 'blk:x' = block), QPoint
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -472,15 +637,9 @@ class PowerCanvas(QGraphicsView):
                                  continued=multi and not primary)
                 self.scene_.addItem(item)
 
-        # edges
+        # edges (labels resolved by the layout, incl. block-pin nets)
         edge_map = {}
-        for pid, cid, pts in lay.edges:
-            parent = tree.elements[pid]
-            label = ""
-            if parent.kind == ElementKind.CONVERTER:
-                label = parent.signal_name or fmt_si(parent.vout_typ, "V")
-            elif parent.kind == ElementKind.SOURCE:
-                label = parent.signal_name or ""
+        for pid, cid, pts, label in lay.edges:
             item = EdgeItem(pts, label, horiz)
             self.scene_.addItem(item)
             edge_map[(pid, cid)] = item
@@ -494,20 +653,28 @@ class PowerCanvas(QGraphicsView):
                                              QPen(Qt.NoPen), QBrush(Theme.edge))
                 dot.setZValue(-4)
 
-        # nodes
-        for el_id in lay.visible:
-            el = tree.elements[el_id]
-            size = lay.sizes[el_id]
-            node = NodeItem(el, tree, results, size,
-                            lay.hidden_counts.get(el_id, 0), self,
-                            detail=lay.details.get(el_id, "standard"),
-                            heat=heat_map.get(el_id))
-            cx, cy = lay.positions[el_id]
+        # nodes: element cards + collapsed-block summary nodes
+        for rid in lay.render_nodes:
+            size = lay.sizes[rid]
+            if rid in lay.block_nodes:
+                info = lay.block_nodes[rid]
+                block = tree.blocks[info.block_id]
+                stats = block_summary_stats(tree, results, info)
+                node = BlockSummaryItem(block, info, stats, size,
+                                        lay.hidden_counts.get(rid, 0), self,
+                                        heat=None)
+            else:
+                el = tree.elements[rid]
+                node = NodeItem(el, tree, results, size,
+                                lay.hidden_counts.get(rid, 0), self,
+                                detail=lay.details.get(rid, "standard"),
+                                heat=heat_map.get(rid))
+            cx, cy = lay.positions[rid]
             node.setPos(cx - size[0] / 2, cy - size[1] / 2)
             node.setFlag(QGraphicsItem.ItemIsMovable, movable)
             self.scene_.addItem(node)
-            self.nodes[el_id] = node
-            if el_id in selected:
+            self.nodes[rid] = node
+            if rid in selected:
                 node.setSelected(True)
 
         margin = 120
@@ -530,6 +697,9 @@ class PowerCanvas(QGraphicsView):
             if isinstance(item, NodeItem):
                 self.elementSelected.emit(item.el.id)
                 return
+            if isinstance(item, BlockSummaryItem):
+                self.elementSelected.emit("")
+                return
         self.elementSelected.emit("")
 
     def node_dragged(self, node: NodeItem):
@@ -540,7 +710,17 @@ class PowerCanvas(QGraphicsView):
         self._reroute_edges()
         self.nodeMoved.emit()
 
+    def block_dragged(self, node: "BlockSummaryItem"):
+        if self._rebuilding or self.tree is None:
+            return
+        center = node.pos() + QPointF(node.w / 2, node.h / 2)
+        node.block.x, node.block.y = center.x(), center.y()
+        self._reroute_edges()
+        self.nodeMoved.emit()
+
     def _reroute_edges(self):
+        """Custom-drag rerouting: generic top/bottom (or left/right) centers
+        for both element cards and block summary nodes."""
         horiz = self.tree.orientation == "LR"
         for (pid, cid), edge in getattr(self, "_edge_map", {}).items():
             pn, cn = self.nodes.get(pid), self.nodes.get(cid)
@@ -569,14 +749,20 @@ class PowerCanvas(QGraphicsView):
 
     def contextMenuEvent(self, event):
         item = self.itemAt(event.pos())
-        while item is not None and not isinstance(item, NodeItem):
+        while item is not None and \
+                not isinstance(item, (NodeItem, BlockSummaryItem)):
             item = item.parentItem()
-        el_id = item.el.id if isinstance(item, NodeItem) else ""
-        if el_id:
+        if isinstance(item, NodeItem):
+            rid = item.el.id
+        elif isinstance(item, BlockSummaryItem):
+            rid = item.rid
+        else:
+            rid = ""
+        if rid:
             self.scene_.clearSelection()
-            if el_id in self.nodes:
-                self.nodes[el_id].setSelected(True)
-        self.contextRequested.emit(el_id, event.globalPos())
+            if rid in self.nodes:
+                self.nodes[rid].setSelected(True)
+        self.contextRequested.emit(rid, event.globalPos())
         event.accept()
 
     def fit(self):
@@ -686,26 +872,28 @@ def _render_tree_image(tree, results, orientation, scale, with_legend,
             scene.addItem(BlockItem(block, rect, power,
                                     continued=multi and not primary))
     horiz = (orientation or tree.orientation) == "LR"
-    for pid, cid, pts in lay.edges:
-        parent = tree.elements[pid]
-        label = ""
-        if parent.kind == ElementKind.CONVERTER:
-            label = parent.signal_name or fmt_si(parent.vout_typ, "V")
-        elif parent.kind == ElementKind.SOURCE:
-            label = parent.signal_name or ""
+    for pid, cid, pts, label in lay.edges:
         scene.addItem(EdgeItem(pts, label, horiz))
     for jx, jy in lay.junctions:
         dot = scene.addEllipse(jx - 3.2, jy - 3.2, 6.4, 6.4,
                                QPen(Qt.NoPen), QBrush(Theme.edge))
         dot.setZValue(-4)
-    for el_id in lay.visible:
-        el = tree.elements[el_id]
-        size = lay.sizes[el_id]
-        node = NodeItem(el, tree, results, size,
-                        lay.hidden_counts.get(el_id, 0), canvas_stub,
-                        detail=lay.details.get(el_id, "standard"),
-                        heat=heat_map.get(el_id))
-        cx, cy = lay.positions[el_id]
+    for rid in lay.render_nodes:
+        size = lay.sizes[rid]
+        if rid in lay.block_nodes:
+            info = lay.block_nodes[rid]
+            block = tree.blocks[info.block_id]
+            stats = block_summary_stats(tree, results, info)
+            node = BlockSummaryItem(block, info, stats, size,
+                                    lay.hidden_counts.get(rid, 0),
+                                    canvas_stub)
+        else:
+            el = tree.elements[rid]
+            node = NodeItem(el, tree, results, size,
+                            lay.hidden_counts.get(rid, 0), canvas_stub,
+                            detail=lay.details.get(rid, "standard"),
+                            heat=heat_map.get(rid))
+        cx, cy = lay.positions[rid]
         node.setPos(cx - size[0] / 2, cy - size[1] / 2)
         scene.addItem(node)
 
@@ -749,8 +937,12 @@ class _StubCanvas:
         def emit(self, *a):
             pass
     collapseToggled = _Sig()
+    blockExpandRequested = _Sig()
 
     def node_dragged(self, node):
+        pass
+
+    def block_dragged(self, node):
         pass
 
 

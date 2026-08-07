@@ -184,12 +184,17 @@ class SeriesElement(Element):
 
 @dataclass
 class Block:
-    """Visual/organizational grouping of elements (e.g. one IC with Icc + Iq loads)."""
+    """Visual/organizational grouping of elements (e.g. one IC with Icc + Iq loads).
+
+    When collapsed, the block renders as ONE summary node with labeled
+    input/output pins and the summed internal power dissipation."""
     id: str = field(default_factory=new_id)
     name: str = "Block"
     description: str = ""
     color: str = "#7c5cff"
     collapsed: bool = False
+    x: Optional[float] = None   # custom-layout position of the summary node
+    y: Optional[float] = None
 
 
 @dataclass
