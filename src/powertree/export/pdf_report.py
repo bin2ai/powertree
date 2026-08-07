@@ -340,6 +340,32 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
         fontName="Helvetica-Bold")))
     flow.append(Spacer(1, 6))
 
+    # growth capacity: end-of-life / feature-growth headroom per tree
+    from ..api import growth_analysis
+    grows = []
+    for tree in project.trees:
+        if tree.source is None:
+            continue
+        g = growth_analysis(tree, project)
+        if g["note"] and "already violates" in (g["note"] or ""):
+            grows.append(f"<b>{_esc(tree.name)}</b>: +0 % — already "
+                         f"violating at nominal load "
+                         f"({_esc(g['bottleneck'] or '')}).")
+        elif g["bottleneck"]:
+            grows.append(f"<b>{_esc(tree.name)}</b>: tolerates "
+                         f"<b>+{g['max_growth_pct']:g} %</b> uniform load "
+                         f"growth; first limit hit: "
+                         f"{_esc(g['bottleneck'])}.")
+        else:
+            grows.append(f"<b>{_esc(tree.name)}</b>: "
+                         f"+{g['max_growth_pct']:g} % or more (no limit "
+                         "reached in the tested range).")
+    if grows:
+        flow.append(Paragraph("Load growth capacity", styles["PTH3"]))
+        for line in grows:
+            flow.append(Paragraph(line, styles["PTBody"]))
+        flow.append(Spacer(1, 6))
+
     for tree in project.trees:
         top = all_metrics[tree.id]["top_consumers"]
         if not top:

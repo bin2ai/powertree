@@ -130,9 +130,9 @@ TREE_HEADERS = ["Element", "Type", "RefDes", "Signal", "Part #", "Pins",
                 "Vin typ (V)", "Iin typ (A)", "Pin typ (W)",
                 "Vout typ (V)", "Iout typ (A)", "Pout typ (W)", "Loss typ (W)",
                 "Pin max (W)", "Load value", "Limit", "% used (max)",
-                "Allowed Vin (V)", "Block", "Status", "Notes"]
+                "Allowed Vin (V)", "Block", "Status", "Notes", "% of source"]
 TREE_WIDTHS = [32, 11, 9, 14, 14, 12, 10, 10, 10, 10, 10, 10, 10,
-               10, 14, 12, 11, 14, 16, 15, 34]
+               10, 14, 12, 11, 14, 16, 15, 34, 11]
 
 
 def _tree_sheet(wb: Workbook, tree: PowerTree, results: TreeResults, used: set):
@@ -173,6 +173,7 @@ def _tree_sheet(wb: Workbook, tree: PowerTree, results: TreeResults, used: set):
             hi = f"{el.v_in_max:g}" if el.v_in_max is not None else "—"
             window = f"{lo} … {hi}"
 
+        p_src = results.get(tree.source.id, "typ").p_out if tree.source else 0
         values = ["  " * depth + el.name, el.kind, el.refdes, el.signal_name,
                   el.part_number, el.pins,
                   round(typ.v_in, 6), round(typ.i_in, 9), None,
@@ -183,7 +184,8 @@ def _tree_sheet(wb: Workbook, tree: PowerTree, results: TreeResults, used: set):
                   round(mx.p_in, 9), load_val, limit,
                   round(pct_used, 1) if pct_used is not None else None,
                   window, block.name if block else "",
-                  _status_text(results, el.id), el.description]
+                  _status_text(results, el.id), el.description,
+                  round(typ.p_in / p_src * 100, 2) if p_src > 1e-12 else None]
         for col, val in enumerate(values, start=1):
             cell = ws.cell(row=r, column=col, value=val)
             cell.border = BORDER

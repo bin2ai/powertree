@@ -161,8 +161,67 @@ TEMPLATES: list = [
 ]
 
 
+def _user_template_paths() -> list:
+    """Where user-defined template JSON files may live (all optional):
+    - POWERTREE_TEMPLATES env var (path to a .json file)
+    - %APPDATA%/PowerTree/templates.json
+    - ./user_templates.json (working directory / project folder)
+    """
+    import os
+    paths = []
+    env = os.environ.get("POWERTREE_TEMPLATES")
+    if env:
+        paths.append(env)
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        paths.append(os.path.join(appdata, "PowerTree", "templates.json"))
+    paths.append(os.path.join(os.getcwd(), "user_templates.json"))
+    return paths
+
+
+def load_user_templates() -> list:
+    """Parse user template JSON files into DeviceTemplate objects.
+
+    File format: a list of objects with keys key, name, category,
+    description, part_number?, datasheet?, rails (list), items (list of
+    {kind, name, rail, params?}). Invalid files are skipped with a console
+    warning — they must never break the app."""
+    import json
+    import os
+    out = []
+    for path in _user_template_paths():
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            for entry in data:
+                items = [TemplateItem(i["kind"], i["name"], i["rail"],
+                                      dict(i.get("params", {})))
+                         for i in entry["items"]]
+                out.append(DeviceTemplate(
+                    key=entry["key"], name=entry["name"],
+                    category=entry.get("category", "User"),
+                    description=entry.get("description", ""),
+                    rails=list(entry.get("rails", [])),
+                    items=items,
+                    part_number=entry.get("part_number", ""),
+                    datasheet=entry.get("datasheet", "")))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"PowerTree: skipping user templates {path}: {exc}")
+    return out
+
+
+def all_templates() -> list:
+    """Built-in templates plus user templates (user keys override
+    built-ins)."""
+    user = load_user_templates()
+    user_keys = {t.key for t in user}
+    return [t for t in TEMPLATES if t.key not in user_keys] + user
+
+
 def template_by_key(key: str) -> DeviceTemplate | None:
-    for t in TEMPLATES:
+    for t in all_templates():
         if t.key == key:
             return t
     return None

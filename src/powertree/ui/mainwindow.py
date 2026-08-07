@@ -1082,13 +1082,40 @@ class MainWindow(QMainWindow):
             table.setColumnWidth(i, w)
         from PySide6.QtGui import QBrush, QColor
         for f in result["findings"]:
+            sev = "WAIVED" if f.get("waived") else f["severity"].upper()
             item = QTreeWidgetItem(table, [
-                f["severity"].upper(), f["tree"] or "project",
+                sev, f["tree"] or "project",
                 f.get("state", "Base"), f["element"] or "—", f["message"]])
-            color = QColor("#f43f5e") if f["severity"] == "error" \
-                else QColor("#fbbf24")
+            if f.get("waived"):
+                color = QColor("#667085")
+            else:
+                color = QColor("#f43f5e") if f["severity"] == "error" \
+                    else QColor("#fbbf24")
             item.setForeground(0, QBrush(color))
+            item.setData(0, Qt.UserRole, (f["tree"], f["element"]))
+
+        def jump(item, _col):
+            tree_name, el_name = item.data(0, Qt.UserRole) or (None, None)
+            if not tree_name or not el_name:
+                return
+            from .. import api as _api
+            try:
+                t = _api.find_tree(self.project, tree_name)
+                el = _api.find_element(t, el_name)
+            except ValueError:
+                return
+            dlg.accept()
+            self.current_tree = t
+            self._rebuild_tree_list()
+            self.selected_element_id = el.id
+            self.refresh(full=True)
+            self.canvas.select_element(el.id)
+
+        table.itemDoubleClicked.connect(jump)
+        hint = QLabel("Double-click a finding to jump to its element.")
+        hint.setStyleSheet("color: #98a3b8; font-size: 11px;")
         lay.addWidget(table, 1)
+        lay.addWidget(hint)
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(dlg.reject)
         buttons.clicked.connect(dlg.accept)

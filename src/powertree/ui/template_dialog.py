@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from ..model.elements import PowerTree, ElementKind
-from ..templates import TEMPLATES, instantiate_template
+from ..templates import all_templates, instantiate_template
 
 
 class TemplateDialog(QDialog):
@@ -29,7 +29,7 @@ class TemplateDialog(QDialog):
         self.list = QListWidget()
         self.list.setMinimumWidth(200)
         cats: dict = {}
-        for t in TEMPLATES:
+        for t in all_templates():
             cats.setdefault(t.category, []).append(t)
         for cat in sorted(cats):
             hdr = QListWidgetItem(f"— {cat} —")

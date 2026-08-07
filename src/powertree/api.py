@@ -16,7 +16,7 @@ from .model.calc import solve_tree, fmt_si
 from .model import serialization
 from .model.nets import collect_nets
 from .sampledata import build_sample_project
-from .templates import TEMPLATES, template_by_key, instantiate_template
+from .templates import all_templates, template_by_key, instantiate_template
 
 SEARCH_FIELDS = ("name", "signal_name", "refdes", "part_number", "pins",
                  "description")
@@ -282,10 +282,71 @@ def nets_report(project: Project) -> dict:
         "conflicts": conflicts}
 
 
+def growth_analysis(tree: PowerTree, project: Project | None = None,
+                    max_factor: float = 10.0) -> dict:
+    """How much uniform load growth the design tolerates: binary-search the
+    scaling factor applied to every load (typ + peak) until the first
+    violation appears. Answers the manager question 'how much headroom does
+    this design have for feature growth / end-of-life?'.
+
+    Waived findings are ignored when `project` is given."""
+    from .model.calc import solve_tree as _solve
+    from .model.scenarios import clone_tree
+    from .model.elements import ElementKind as EK
+
+    def errors_at(factor: float):
+        scaled = clone_tree(tree)
+        for el in scaled.elements.values():
+            if el.kind == EK.LOAD:
+                el.value_typ *= factor
+                if el.value_max is not None:
+                    el.value_max *= factor
+        r = _solve(scaled)
+        errs = [w for w in r.warnings if w.severity == "error"]
+        if project is not None:
+            errs = [w for w in errs
+                    if not find_waiver(project, w.element_id, w.message)]
+        return errs
+
+    if errors_at(1.0):
+        first = errors_at(1.0)[0]
+        el = tree.elements.get(first.element_id)
+        return {"max_growth_pct": 0.0,
+                "bottleneck": el.name if el else None,
+                "bottleneck_msg": first.message,
+                "note": "design already violates at nominal load"}
+    lo, hi = 1.0, max_factor
+    if not errors_at(max_factor):
+        return {"max_growth_pct": (max_factor - 1.0) * 100.0,
+                "bottleneck": None,
+                "bottleneck_msg": None,
+                "note": f"no violation up to {max_factor:g}x load"}
+    for _ in range(24):
+        mid = (lo + hi) / 2
+        if errors_at(mid):
+            hi = mid
+        else:
+            lo = mid
+    first = errors_at(hi)[0]
+    el = tree.elements.get(first.element_id)
+    return {"max_growth_pct": round((lo - 1.0) * 100.0, 1),
+            "bottleneck": el.name if el else None,
+            "bottleneck_msg": first.message, "note": None}
+
+
 # ------------------------------------------------------------------ waivers
+def _finding_kind(message: str) -> str:
+    """Stable identity of a finding: the text before the first ':' carries
+    the element, the check type and the corner — numeric values after it may
+    drift with small design changes without invalidating a waiver."""
+    return message.split(":", 1)[0].strip()
+
+
 def find_waiver(project: Project, element_id, message: str):
+    kind = _finding_kind(message)
     for w in project.waivers:
-        if w.get("element_id") == element_id and w.get("message") == message:
+        if w.get("element_id") == element_id and \
+                _finding_kind(w.get("message", "")) == kind:
             return w
     return None
 
@@ -382,7 +443,7 @@ def list_templates() -> list:
     return [{"key": t.key, "name": t.name, "category": t.category,
              "part_number": t.part_number, "rails": t.rails,
              "items": [i.name for i in t.items],
-             "description": t.description} for t in TEMPLATES]
+             "description": t.description} for t in all_templates()]
 
 
 def apply_template(project: Project, tree_name: str | None, template_key: str,
@@ -392,7 +453,7 @@ def apply_template(project: Project, tree_name: str | None, template_key: str,
     template = template_by_key(template_key)
     if template is None:
         raise ValueError(f"Unknown template '{template_key}'. "
-                         f"Available: {[t.key for t in TEMPLATES]}")
+                         f"Available: {[t.key for t in all_templates()]}")
     resolved = {}
     for rail, ident in rail_map.items():
         resolved[rail] = find_element(tree, ident).id

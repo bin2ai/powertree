@@ -75,6 +75,9 @@ class NotesPanel(QWidget):
         self.tree_widget.setHeaderHidden(True)
         self.tree_widget.itemSelectionChanged.connect(self._on_select)
         self.tree_widget.itemChanged.connect(self._on_rename)
+        self.tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree_widget.customContextMenuRequested.connect(
+            self._note_context_menu)
         split.addWidget(self.tree_widget)
 
         editor_split = QSplitter(Qt.Vertical)
@@ -275,6 +278,43 @@ class NotesPanel(QWidget):
             note.images[name] = base64.b64encode(fh.read()).decode("ascii")
         self.editor.insertPlainText(f"\n![{base}]({name})\n")
         self.changed.emit()
+
+    def _note_context_menu(self, pos):
+        note = self.selected_note()
+        if note is None or self.project is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("Export this note + children → Markdown…",
+                       lambda: self._export_subtree("md"))
+        menu.addAction("Export this note + children → HTML…",
+                       lambda: self._export_subtree("html"))
+        menu.addAction("Export this note + children → PDF…",
+                       lambda: self._export_subtree("pdf"))
+        menu.addSeparator()
+        menu.addAction("Delete note (and children)", self.delete_note)
+        menu.exec(self.tree_widget.mapToGlobal(pos))
+
+    def _export_subtree(self, fmt: str):
+        note = self.selected_note()
+        if note is None:
+            return
+        filters = {"md": "Markdown (*.md)", "html": "HTML (*.html)",
+                   "pdf": "PDF (*.pdf)"}
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export note subtree", f"{note.title}.{fmt}", filters[fmt])
+        if not path:
+            return
+        from ..export.notes_export import (
+            export_notes_markdown, export_notes_html, export_notes_pdf)
+        fn = {"md": export_notes_markdown, "html": export_notes_html,
+              "pdf": export_notes_pdf}[fmt]
+        try:
+            written = fn(self.project, path, root_note_id=note.id)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export note subtree",
+                                 f"Export failed:\n{exc}")
+            return
+        self.links_label.setText(f"Exported: {written}")
 
     def link_current_to(self, element_id: str, element_name: str):
         note = self.current

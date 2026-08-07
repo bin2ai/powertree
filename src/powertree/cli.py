@@ -127,6 +127,21 @@ def cmd_bom(args):
     return 0
 
 
+def cmd_growth(args):
+    project = api.load(args.project)
+    tree = api.find_tree(project, args.tree)
+    g = api.growth_analysis(tree, project)
+    if _p(g, args.json):
+        return 0
+    print(f"Load growth capacity — {tree.name}:")
+    if g["note"]:
+        print(f"  {g['note']}")
+    print(f"  max uniform load growth: +{g['max_growth_pct']:g} %")
+    if g["bottleneck"]:
+        print(f"  bottleneck: {g['bottleneck']} — {g['bottleneck_msg']}")
+    return 0
+
+
 def cmd_headroom(args):
     project = api.load(args.project)
     tree = api.find_tree(project, args.tree)
@@ -220,6 +235,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("bom", help="parts list aggregated by part number")
     common(p)
     p.set_defaults(fn=cmd_bom)
+
+    p = sub.add_parser("growth",
+                       help="max uniform load growth before first violation")
+    common(p)
+    p.add_argument("--tree", help="tree name (default: first)")
+    p.set_defaults(fn=cmd_growth)
 
     p = sub.add_parser("headroom",
                        help="remaining budget per limited rail (worst case)")

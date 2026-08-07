@@ -350,5 +350,64 @@ def test_cli_validate_strict(demo_path=None):
     assert strict.returncode == 1, strict.stdout
 
 
+def test_growth_analysis_hand_checkable():
+    from powertree.model.elements import LimitType
+    t = PowerTree("t")
+    src = t.add_element(Source(v_min=5, v_typ=5, v_max=5,
+                               limit_type=LimitType.CURRENT,
+                               limit_value=2.0))
+    t.add_element(Load(load_type=LoadType.CURRENT, value_typ=1.0),
+                  parent_id=src.id)
+    g = api.growth_analysis(t)
+    # limit 2 A, load 1 A -> exactly +100 % growth capacity
+    assert abs(g["max_growth_pct"] - 100.0) < 2.0
+    assert g["bottleneck"] is not None
+
+
+def test_growth_analysis_demo_respects_waivers():
+    from powertree.model.calc import solve_tree as _solve
+    p = api.demo_project()
+    tree = p.trees[0]
+    g0 = api.growth_analysis(tree, p)
+    assert g0["max_growth_pct"] == 0.0        # VDDA violation at nominal
+    # waive the VDDA findings -> growth is limited by the core buck instead
+    r = _solve(tree)
+    for w in [w for w in r.warnings if "VDDA" in w.message]:
+        api.waive_finding(p, w.element_id, w.message, "vendor errata")
+    g1 = api.growth_analysis(tree, p)
+    assert g1["max_growth_pct"] > 0.0
+    assert g1["bottleneck"] is not None
+
+
+def test_user_templates_from_json(tmp_path, monkeypatch):
+    import json
+    from powertree import templates as T
+    payload = [{
+        "key": "my_fpga", "name": "My Custom FPGA", "category": "User",
+        "part_number": "XCU55C", "rails": ["0.85V"],
+        "items": [{"kind": "load", "name": "VCCINT_U",
+                   "rail": "0.85V",
+                   "params": {"load_type": "current", "value_typ": 5.0,
+                              "v_in_min": 0.83, "v_in_max": 0.87}}]}]
+    path = tmp_path / "templates.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("POWERTREE_TEMPLATES", str(path))
+    keys = [t.key for t in T.all_templates()]
+    assert "my_fpga" in keys and "zynq7020" in keys
+    tpl = T.template_by_key("my_fpga")
+    assert tpl.part_number == "XCU55C"
+    # instantiable like a built-in
+    tree = PowerTree("t")
+    src = tree.add_element(Source(v_min=0.85, v_typ=0.85, v_max=0.85))
+    created = T.instantiate_template(tree, tpl, {"0.85V": src.id},
+                                     refdes="U9")
+    assert created[0].value_typ == 5.0
+    # bad file must not break anything
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    monkeypatch.setenv("POWERTREE_TEMPLATES", str(bad))
+    assert any(t.key == "zynq7020" for t in T.all_templates())
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
