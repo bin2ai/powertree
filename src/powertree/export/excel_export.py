@@ -239,9 +239,11 @@ def _overview_sheet(wb: Workbook, project: Project, tree_results: dict):
         Font(size=11, color="FF667085")
     if project.description:
         ws.cell(row=3, column=1, value=project.description).font = Font(size=9)
+    from ..api import tree_metrics
     _header(ws, 5, ["Power tree", "Elements", "Source", "P typ (W)",
-                    "P max (W)", "Errors", "Warnings"],
-            [34, 10, 26, 12, 12, 9, 10])
+                    "P max (W)", "Efficiency (%)", "Loss typ (W)",
+                    "Errors", "Warnings"],
+            [34, 10, 26, 12, 12, 13, 12, 9, 10])
     r = 5
     for tree in project.trees:
         results = tree_results[tree.id]
@@ -249,20 +251,23 @@ def _overview_sheet(wb: Workbook, project: Project, tree_results: dict):
         src = tree.source
         typ = results.get(src.id, "typ") if src else None
         mx = results.get(src.id, "max") if src else None
+        metrics = tree_metrics(tree, results)
         errs = sum(1 for w in results.warnings if w.severity == "error")
         warns = sum(1 for w in results.warnings if w.severity == "warn")
         vals = [tree.name, len(tree.elements), src.name if src else "—",
                 round(typ.p_out, 6) if typ else None,
-                round(mx.p_out, 6) if mx else None, errs, warns]
+                round(mx.p_out, 6) if mx else None,
+                metrics["efficiency_pct"],
+                round(metrics["p_loss_typ"], 6), errs, warns]
         for col, val in enumerate(vals, start=1):
             cell = ws.cell(row=r, column=col, value=val)
             cell.border = BORDER
             cell.font = Font(size=9)
         if errs:
-            ws.cell(row=r, column=6).fill = PatternFill(
+            ws.cell(row=r, column=8).fill = PatternFill(
                 "solid", fgColor=SEV_FILLS["error"])
         if warns:
-            ws.cell(row=r, column=7).fill = PatternFill(
+            ws.cell(row=r, column=9).fill = PatternFill(
                 "solid", fgColor=SEV_FILLS["warn"])
     r += 2
     ws.cell(row=r, column=1,

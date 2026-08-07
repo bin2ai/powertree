@@ -74,6 +74,42 @@ def find_element(tree: PowerTree, ident: str):
                      "(match by id, name, refdes or signal name).")
 
 
+def tree_metrics(tree: PowerTree, results=None, top_n: int = 5) -> dict:
+    """Decision-maker analytics for one solved tree: source power, delivered
+    load power, conversion+distribution loss, end-to-end efficiency and the
+    top power consumers with their share of the source budget."""
+    from .model.calc import solve_tree as _solve
+    r = results or _solve(tree)
+    src = tree.source
+    if src is None:
+        return {"p_source_typ": 0, "p_source_max": 0, "p_loads_typ": 0,
+                "p_loss_typ": 0, "efficiency_pct": None, "top_consumers": []}
+    typ = r.get(src.id, "typ")
+    mx = r.get(src.id, "max")
+    p_loads = sum(r.get(el.id, "typ").p_in for el in tree.elements.values()
+                  if el.kind == ElementKind.LOAD)
+    p_loss = sum(r.get(el.id, "typ").p_loss for el in tree.elements.values()
+                 if el.kind in (ElementKind.CONVERTER, ElementKind.SERIES))
+    eff = (p_loads / typ.p_out * 100.0) if typ.p_out > 1e-12 else None
+    consumers = sorted(
+        ((el, r.get(el.id, "typ").p_in) for el in tree.elements.values()
+         if el.kind == ElementKind.LOAD),
+        key=lambda t: -t[1])[:top_n]
+    top = [{"name": el.name, "refdes": el.refdes,
+            "block": (tree.blocks[el.block_id].name
+                      if el.block_id and el.block_id in tree.blocks else ""),
+            "p_typ_w": round(p, 9),
+            "pct_of_source": round(p / typ.p_out * 100.0, 1)
+            if typ.p_out > 1e-12 else 0.0}
+           for el, p in consumers]
+    return {"p_source_typ": round(typ.p_out, 9),
+            "p_source_max": round(mx.p_out, 9),
+            "p_loads_typ": round(p_loads, 9),
+            "p_loss_typ": round(p_loss, 9),
+            "efficiency_pct": round(eff, 1) if eff is not None else None,
+            "top_consumers": top}
+
+
 # ------------------------------------------------------------------ queries
 def project_summary(project: Project) -> dict:
     trees = []
@@ -87,12 +123,16 @@ def project_summary(project: Project) -> dict:
         total_findings["warn"] += warns
         typ = r.get(src.id, "typ") if src else None
         mx = r.get(src.id, "max") if src else None
+        metrics = tree_metrics(tree, r)
         trees.append({
             "name": tree.name, "id": tree.id,
             "elements": len(tree.elements), "blocks": len(tree.blocks),
             "source": src.name if src else None,
             "p_typ_w": round(typ.p_out, 6) if typ else None,
             "p_max_w": round(mx.p_out, 6) if mx else None,
+            "efficiency_pct": metrics["efficiency_pct"],
+            "p_loss_typ_w": metrics["p_loss_typ"],
+            "top_consumers": metrics["top_consumers"],
             "errors": errs, "warnings": warns})
     return {"name": project.name, "description": project.description,
             "file": project.file_path, "trees": trees,
@@ -244,10 +284,57 @@ def set_element_field(project: Project, tree_name: str | None, element: str,
                                  if w.severity == "warn")}
 
 
+def export_csv(project: Project, out_path: str,
+               tree_name: str | None = None) -> str:
+    """Solved-tree table as CSV (all trees, or one) — the universal exchange
+    format for scripts, requirement tools and spreadsheets."""
+    import csv
+    from .model.calc import solve_tree as _solve
+    trees = [find_tree(project, tree_name)] if tree_name else project.trees
+    headers = ["tree", "depth", "name", "kind", "refdes", "signal", "part",
+               "block", "v_in_typ", "i_in_typ", "p_in_typ", "v_out_typ",
+               "i_out_typ", "p_out_typ", "p_loss_typ", "p_in_max",
+               "pct_of_source_typ", "status"]
+    with open(out_path, "w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(headers)
+        for tree in trees:
+            r = _solve(tree)
+            src = tree.source
+            p_src = r.get(src.id, "typ").p_out if src else 0.0
+
+            def emit(el, depth):
+                typ = r.get(el.id, "typ")
+                mx = r.get(el.id, "max")
+                warns = r.warnings_for(el.id)
+                status = "OK" if not warns else \
+                    ("VIOLATION" if r.worst_severity(el.id) == "error"
+                     else "LOW MARGIN")
+                block = tree.blocks.get(el.block_id) if el.block_id else None
+                writer.writerow([
+                    tree.name, depth, el.name, el.kind, el.refdes,
+                    el.signal_name, el.part_number,
+                    block.name if block else "",
+                    round(typ.v_in, 6), round(typ.i_in, 9),
+                    round(typ.p_in, 9), round(typ.v_out, 6),
+                    round(typ.i_out, 9), round(typ.p_out, 9),
+                    round(typ.p_loss, 9), round(mx.p_in, 9),
+                    round(typ.p_in / p_src * 100, 2) if p_src > 1e-12 else "",
+                    status])
+                for child in tree.children_of(el.id):
+                    emit(child, depth + 1)
+
+            if src:
+                emit(src, 0)
+    return out_path
+
+
 # ------------------------------------------------------------------ exports
 def export(project: Project, kind: str, out_path: str,
            tree_name: str | None = None, style: str | None = None) -> str:
     kind = kind.lower()
+    if kind == "csv":
+        return export_csv(project, out_path, tree_name)
     if kind in ("png", "pdf"):
         _ensure_headless_qt()
     if kind == "pdf":
@@ -274,5 +361,5 @@ def export(project: Project, kind: str, out_path: str,
         from .export.notes_export import export_notes_pdf
         return export_notes_pdf(project, out_path)
     raise ValueError(
-        f"Unknown export kind '{kind}'. Use pdf, png, xlsx, xlsm, "
+        f"Unknown export kind '{kind}'. Use pdf, png, csv, xlsx, xlsm, "
         "notes-md, notes-html or notes-pdf.")

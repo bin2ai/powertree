@@ -40,10 +40,17 @@ def cmd_info(args):
     for t in summary["trees"]:
         state = "clean" if not (t["errors"] or t["warnings"]) else \
             f"{t['errors']} errors / {t['warnings']} warnings"
+        eff = f", η {t['efficiency_pct']:g} %" \
+            if t.get("efficiency_pct") is not None else ""
         print(f"  ⚡ {t['name']}: {t['elements']} elements, "
               f"{t['blocks']} blocks, source '{t['source']}', "
               f"P {fmt_si(t['p_typ_w'], 'W')} typ / "
-              f"{fmt_si(t['p_max_w'], 'W')} max — {state}")
+              f"{fmt_si(t['p_max_w'], 'W')} max{eff}, "
+              f"loss {fmt_si(t.get('p_loss_typ_w'), 'W')} — {state}")
+        for c in t.get("top_consumers", [])[:5]:
+            where = f" [{c['block']}]" if c["block"] else ""
+            print(f"      {c['pct_of_source']:5.1f} %  "
+                  f"{fmt_si(c['p_typ_w'], 'W'):>9s}  {c['name']}{where}")
     print(f"  Notes: {summary['notes']}")
     return 0
 
@@ -178,8 +185,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_templates)
 
     p = sub.add_parser("export", help="export reports/images")
-    p.add_argument("kind", choices=["pdf", "png", "xlsx", "xlsm", "notes-md",
-                                    "notes-html", "notes-pdf"])
+    p.add_argument("kind", choices=["pdf", "png", "csv", "xlsx", "xlsm",
+                                    "notes-md", "notes-html", "notes-pdf"])
     p.add_argument("project")
     p.add_argument("-o", "--output", required=True)
     p.add_argument("--tree", help="tree name (png only; default: first)")

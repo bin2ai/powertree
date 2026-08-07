@@ -234,24 +234,36 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
     flow.append(Paragraph(f"Generated {date.today().isoformat()} by PowerTree"
                           f"{author}", styles["PTMeta"]))
     flow.append(Spacer(1, 10))
-    orows = [["Power tree", "Elements", "Source", "P typ", "P max", "Findings"]]
+    from ..api import tree_metrics
+    orows = [["Power tree", "Source", "P typ", "P max", "η end-to-end",
+              "Loss typ", "Findings"]]
     all_results = {}
+    all_metrics = {}
+    total_errs = total_warns = 0
     for tree in project.trees:
         results = solve_tree(tree)
         all_results[tree.id] = results
+        metrics = tree_metrics(tree, results)
+        all_metrics[tree.id] = metrics
         src = tree.source
         typ = results.get(src.id, "typ") if src else None
         mx = results.get(src.id, "max") if src else None
         errs = sum(1 for w in results.warnings if w.severity == "error")
         warns = sum(1 for w in results.warnings if w.severity == "warn")
+        total_errs += errs
+        total_warns += warns
+        eff = metrics["efficiency_pct"]
         orows.append([
-            _esc(tree.name), str(len(tree.elements)),
+            _esc(tree.name),
             _esc(src.name) if src else "—",
             fmt_si(typ.p_out, "W") if typ else "—",
             fmt_si(mx.p_out, "W") if mx else "—",
-            f"{errs} errors, {warns} warnings" if (errs or warns) else "clean"])
+            f"{eff:g} %" if eff is not None else "—",
+            fmt_si(metrics["p_loss_typ"], "W"),
+            f"{errs} err / {warns} warn" if (errs or warns) else "clean"])
     ot = Table(orows, hAlign="LEFT",
-               colWidths=[45 * mm, 18 * mm, 40 * mm, 20 * mm, 20 * mm, 30 * mm])
+               colWidths=[38 * mm, 34 * mm, 18 * mm, 18 * mm, 22 * mm,
+                          18 * mm, 24 * mm])
     ot.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -261,6 +273,49 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
     ]))
     flow.append(ot)
+
+    # ---- executive verdict + top consumers (decision-maker view) ----
+    flow.append(Spacer(1, 8))
+    if total_errs:
+        verdict = (f"⛔ ATTENTION: {total_errs} margin violation(s) and "
+                   f"{total_warns} low-margin warning(s) require design "
+                   "action — details in each tree's margin analysis.")
+        vcolor = colors.HexColor("#dc2626")
+    elif total_warns:
+        verdict = (f"⚠ CAUTION: no violations, but {total_warns} margin(s) "
+                   "are running below 10 % headroom.")
+        vcolor = colors.HexColor("#b45309")
+    else:
+        verdict = "✅ HEALTHY: every rail meets its limits and voltage windows."
+        vcolor = colors.HexColor("#047857")
+    from reportlab.lib.styles import ParagraphStyle
+    flow.append(Paragraph(verdict, ParagraphStyle(
+        "verdict", parent=styles["PTBody"], fontSize=10, textColor=vcolor,
+        fontName="Helvetica-Bold")))
+    flow.append(Spacer(1, 6))
+
+    for tree in project.trees:
+        top = all_metrics[tree.id]["top_consumers"]
+        if not top:
+            continue
+        flow.append(Paragraph(f"Top consumers — {_esc(tree.name)}",
+                              styles["PTH3"]))
+        trows = [["#", "Load", "Block", "P typ", "% of source"]]
+        for i, c in enumerate(top, start=1):
+            trows.append([str(i), _esc(c["name"]), _esc(c["block"]),
+                          fmt_si(c["p_typ_w"], "W"),
+                          f"{c['pct_of_source']:g} %"])
+        tt = Table(trows, hAlign="LEFT",
+                   colWidths=[8 * mm, 58 * mm, 44 * mm, 22 * mm, 24 * mm])
+        tt.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8ecf5")),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#c3ccdd")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        flow.append(tt)
+        flow.append(Spacer(1, 4))
 
     # ---- global net registry ----
     nets, conflicts = collect_nets(project)

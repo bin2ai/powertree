@@ -10,14 +10,14 @@
   ],
   "trees": [
     {
-      "id": "123b05afc603",
+      "id": "c5450873054f",
       "name": "Zynq Carrier 12V",
       "description": "12 V brick through input protection into a 5 V intermediate bus, then point-of-load regulators for every Zynq / peripheral rail.",
       "orientation": "TD",
       "detail_default": "",
       "elements": [
         {
-          "id": "67999733d4ff",
+          "id": "6a954b32b217",
           "kind": "source",
           "name": "12V DC Input",
           "signal_name": "VIN_12V",
@@ -41,7 +41,7 @@
           "limit_value": 24.0
         },
         {
-          "id": "e8e32c9d5a5e",
+          "id": "5e8b952b778b",
           "kind": "series",
           "name": "Input Fuse",
           "signal_name": "VIN_12V_F",
@@ -50,8 +50,8 @@
           "pins": "",
           "description": "Littelfuse 0451002; cold resistance.",
           "datasheet": "",
-          "parent_id": "67999733d4ff",
-          "block_id": "ca46c719a28e",
+          "parent_id": "6a954b32b217",
+          "block_id": "28c0687c6980",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -68,7 +68,7 @@
           "p_max": null
         },
         {
-          "id": "35a4e1b1d010",
+          "id": "07723eef8377",
           "kind": "series",
           "name": "Input Bead",
           "signal_name": "VIN_FLT",
@@ -77,8 +77,8 @@
           "pins": "",
           "description": "Murata BLM31 series, DCR 20 mΩ.",
           "datasheet": "",
-          "parent_id": "e8e32c9d5a5e",
-          "block_id": "ca46c719a28e",
+          "parent_id": "5e8b952b778b",
+          "block_id": "28c0687c6980",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -95,7 +95,7 @@
           "p_max": null
         },
         {
-          "id": "8c63dfba644a",
+          "id": "8d4684af3b36",
           "kind": "converter",
           "name": "5V Buck",
           "signal_name": "VCC_5V0",
@@ -104,8 +104,8 @@
           "pins": "",
           "description": "",
           "datasheet": "",
-          "parent_id": "35a4e1b1d010",
-          "block_id": "2881b39fa12f",
+          "parent_id": "07723eef8377",
+          "block_id": "d99dfa7a93ce",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -122,7 +122,7 @@
           "quiescent_ma": 0.0
         },
         {
-          "id": "40c5ad4b6ef1",
+          "id": "ed67810020a7",
           "kind": "load",
           "name": "Controller Iq",
           "signal_name": "",
@@ -131,8 +131,8 @@
           "pins": "VIN pin",
           "description": "",
           "datasheet": "",
-          "parent_id": "35a4e1b1d010",
-          "block_id": "2881b39fa12f",
+          "parent_id": "07723eef8377",
+          "block_id": "d99dfa7a93ce",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -146,7 +146,7 @@
           "v_in_max": null
         },
         {
-          "id": "8e8d1858cbe6",
+          "id": "8948f80b503d",
           "kind": "converter",
           "name": "3.3V Buck",
           "signal_name": "VCC_3V3",
@@ -155,8 +155,8 @@
           "pins": "",
           "description": "",
           "datasheet": "",
-          "parent_id": "8c63dfba644a",
-          "block_id": "39075d95741e",
+          "parent_id": "8d4684af3b36",
+          "block_id": "f756c84989ab",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -173,7 +173,7 @@
           "quiescent_ma": 0.0
         },
         {
-          "id": "f664e6530ec9",
+          "id": "5e8c4447caca",
           "kind": "load",
           "name": "Controller Iq",
           "signal_name": "",
@@ -182,8 +182,8 @@
           "pins": "VIN pin",
           "description": "",
           "datasheet": "",
-          "parent_id": "8c63dfba644a",
-          "block_id": "39075d95741e",
+          "parent_id": "8d4684af3b36",
+          "block_id": "f756c84989ab",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -197,7 +197,7 @@
           "v_in_max": null
         },
         {
-          "id": "b50f35793aaf",
+          "id": "a50c17a0b782",
           "kind": "converter",
           "name": "1.8V Buck",
           "signal_name": "VCC_1V8",
@@ -206,8 +206,8 @@
           "pins": "",
           "description": "",
           "datasheet": "",
-          "parent_id": "8c63dfba644a",
-          "block_id": "0f97c3fd2f8c",
+          "parent_id": "8d4684af3b36",
+          "block_id": "70a4855a97de",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -224,7 +224,7 @@
           "quiescent_ma": 0.0
         },
         {
-          "id": "f1e26b0f5fa4",
+          "id": "7e8e1a1257df",
           "kind": "load",
           "name": "Controller Iq",
           "signal_name": "",
@@ -233,8 +233,8 @@
           "pins": "VIN pin",
           "description": "",
           "datasheet": "",
-          "parent_id": "8c63dfba644a",
-          "block_id": "0f97c3fd2f8c",
+          "parent_id": "8d4684af3b36",
+          "block_id": "70a4855a97de",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -248,7 +248,7 @@
           "v_in_max": null
         },
         {
-          "id": "f3bb9680fe73",
+          "id": "14a20a315533",
           "kind": "converter",
           "name": "1.0V Core Buck",
           "signal_name": "VCC_1V0",
@@ -257,8 +257,8 @@
           "pins": "",
           "description": "",
           "datasheet": "",
-          "parent_id": "8c63dfba644a",
-          "block_id": "a605f43fb519",
+          "parent_id": "8d4684af3b36",
+          "block_id": "ba67358a8f68",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -275,7 +275,7 @@
           "quiescent_ma": 0.0
         },
         {
-          "id": "743002bfa3a3",
+          "id": "d3ae1dee26fc",
           "kind": "load",
           "name": "Controller Iq",
           "signal_name": "",
@@ -284,8 +284,8 @@
           "pins": "VIN pin",
           "description": "",
           "datasheet": "",
-          "parent_id": "8c63dfba644a",
-          "block_id": "a605f43fb519",
+          "parent_id": "8d4684af3b36",
+          "block_id": "ba67358a8f68",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -299,7 +299,7 @@
           "v_in_max": null
         },
         {
-          "id": "467138d8069d",
+          "id": "c3cc2f97af3e",
           "kind": "converter",
           "name": "1.5V DDR Buck",
           "signal_name": "VCC_1V5",
@@ -308,8 +308,8 @@
           "pins": "",
           "description": "",
           "datasheet": "",
-          "parent_id": "8c63dfba644a",
-          "block_id": "df3c1e519e83",
+          "parent_id": "8d4684af3b36",
+          "block_id": "f3c988e60162",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -326,7 +326,7 @@
           "quiescent_ma": 0.0
         },
         {
-          "id": "194f960c3f1e",
+          "id": "5376f051766c",
           "kind": "load",
           "name": "Controller Iq",
           "signal_name": "",
@@ -335,8 +335,8 @@
           "pins": "VIN pin",
           "description": "",
           "datasheet": "",
-          "parent_id": "8c63dfba644a",
-          "block_id": "df3c1e519e83",
+          "parent_id": "8d4684af3b36",
+          "block_id": "f3c988e60162",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -350,7 +350,7 @@
           "v_in_max": null
         },
         {
-          "id": "f14acdd2c5f1",
+          "id": "5a79696fffe5",
           "kind": "converter",
           "name": "1.2V LDO",
           "signal_name": "VCC_1V2",
@@ -359,8 +359,8 @@
           "pins": "",
           "description": "",
           "datasheet": "",
-          "parent_id": "b50f35793aaf",
-          "block_id": "1c01a77f212c",
+          "parent_id": "a50c17a0b782",
+          "block_id": "4b5b1d356de2",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -377,7 +377,7 @@
           "quiescent_ma": 0.0
         },
         {
-          "id": "205a54d2c954",
+          "id": "2202be269dfa",
           "kind": "load",
           "name": "LDO Iq (GND pin)",
           "signal_name": "",
@@ -386,8 +386,8 @@
           "pins": "GND pin",
           "description": "",
           "datasheet": "",
-          "parent_id": "b50f35793aaf",
-          "block_id": "1c01a77f212c",
+          "parent_id": "a50c17a0b782",
+          "block_id": "4b5b1d356de2",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -401,7 +401,7 @@
           "v_in_max": null
         },
         {
-          "id": "c6dfaddf2d36",
+          "id": "054b970cec42",
           "kind": "series",
           "name": "VCCINT Bead",
           "signal_name": "VCCINT_FLT",
@@ -410,7 +410,7 @@
           "pins": "",
           "description": "Low-DCR bead for the core rail.",
           "datasheet": "",
-          "parent_id": "f3bb9680fe73",
+          "parent_id": "14a20a315533",
           "block_id": null,
           "note_ids": [],
           "scenario_overrides": {},
@@ -428,7 +428,7 @@
           "p_max": null
         },
         {
-          "id": "20dbc4e24c5f",
+          "id": "e5dc44984454",
           "kind": "series",
           "name": "Clock 1V8 Bead",
           "signal_name": "CLK_1V8_FLT",
@@ -437,7 +437,7 @@
           "pins": "",
           "description": "WRONG PART: 1.5 Ω DCR bead drops the rail below the clock generator's minimum — visible finding.",
           "datasheet": "",
-          "parent_id": "b50f35793aaf",
+          "parent_id": "a50c17a0b782",
           "block_id": null,
           "note_ids": [],
           "scenario_overrides": {},
@@ -455,7 +455,7 @@
           "p_max": null
         },
         {
-          "id": "450dd5ca1d0d",
+          "id": "5727fd35862d",
           "kind": "load",
           "name": "VCCINT (PL core)",
           "signal_name": "VCCINT",
@@ -464,8 +464,8 @@
           "pins": "VCCINT balls",
           "description": "",
           "datasheet": "DS187 / DS191",
-          "parent_id": "c6dfaddf2d36",
-          "block_id": "c71f0202254b",
+          "parent_id": "054b970cec42",
+          "block_id": "b20efb05c38c",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -488,7 +488,7 @@
           "v_in_max": 1.05
         },
         {
-          "id": "94ff673637aa",
+          "id": "be98e64eaaae",
           "kind": "load",
           "name": "VCCPINT (PS core)",
           "signal_name": "VCCPINT",
@@ -497,8 +497,8 @@
           "pins": "VCCPINT balls",
           "description": "",
           "datasheet": "DS187 / DS191",
-          "parent_id": "c6dfaddf2d36",
-          "block_id": "c71f0202254b",
+          "parent_id": "054b970cec42",
+          "block_id": "b20efb05c38c",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -521,7 +521,7 @@
           "v_in_max": 1.05
         },
         {
-          "id": "5231843a02af",
+          "id": "7e8a3090bad9",
           "kind": "load",
           "name": "VCCBRAM",
           "signal_name": "VCCBRAM",
@@ -530,8 +530,8 @@
           "pins": "VCCBRAM balls",
           "description": "",
           "datasheet": "DS187 / DS191",
-          "parent_id": "c6dfaddf2d36",
-          "block_id": "c71f0202254b",
+          "parent_id": "054b970cec42",
+          "block_id": "b20efb05c38c",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -554,7 +554,7 @@
           "v_in_max": 1.05
         },
         {
-          "id": "f63b1a902386",
+          "id": "033332ca2ca1",
           "kind": "load",
           "name": "VCCAUX (PL aux)",
           "signal_name": "VCCAUX",
@@ -563,8 +563,8 @@
           "pins": "VCCAUX balls",
           "description": "",
           "datasheet": "DS187 / DS191",
-          "parent_id": "b50f35793aaf",
-          "block_id": "c71f0202254b",
+          "parent_id": "a50c17a0b782",
+          "block_id": "b20efb05c38c",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -587,7 +587,7 @@
           "v_in_max": 1.89
         },
         {
-          "id": "ac6b6d7a8c80",
+          "id": "9143d31a4f6d",
           "kind": "load",
           "name": "VCCPAUX (PS aux)",
           "signal_name": "VCCPAUX",
@@ -596,8 +596,8 @@
           "pins": "VCCPAUX balls",
           "description": "",
           "datasheet": "DS187 / DS191",
-          "parent_id": "b50f35793aaf",
-          "block_id": "c71f0202254b",
+          "parent_id": "a50c17a0b782",
+          "block_id": "b20efb05c38c",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -620,7 +620,7 @@
           "v_in_max": 1.89
         },
         {
-          "id": "28010dd56bb2",
+          "id": "0fe4223e97ed",
           "kind": "load",
           "name": "VCCPLL",
           "signal_name": "VCCPLL",
@@ -629,8 +629,8 @@
           "pins": "VCCPLL ball",
           "description": "",
           "datasheet": "DS187 / DS191",
-          "parent_id": "b50f35793aaf",
-          "block_id": "c71f0202254b",
+          "parent_id": "a50c17a0b782",
+          "block_id": "b20efb05c38c",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -653,7 +653,7 @@
           "v_in_max": 1.89
         },
         {
-          "id": "70c23fbe96de",
+          "id": "db2e903d50a8",
           "kind": "load",
           "name": "VCCO MIO0 (3.3V IO)",
           "signal_name": "VCCO_MIO0",
@@ -662,8 +662,8 @@
           "pins": "bank 500/501",
           "description": "",
           "datasheet": "DS187 / DS191",
-          "parent_id": "8e8d1858cbe6",
-          "block_id": "c71f0202254b",
+          "parent_id": "8948f80b503d",
+          "block_id": "b20efb05c38c",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -686,7 +686,7 @@
           "v_in_max": 3.465
         },
         {
-          "id": "49f6ab47872b",
+          "id": "4503506a58c5",
           "kind": "load",
           "name": "VCCO HR banks 34/35",
           "signal_name": "VCCO_34",
@@ -695,8 +695,8 @@
           "pins": "banks 34/35",
           "description": "",
           "datasheet": "DS187 / DS191",
-          "parent_id": "8e8d1858cbe6",
-          "block_id": "c71f0202254b",
+          "parent_id": "8948f80b503d",
+          "block_id": "b20efb05c38c",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -719,7 +719,7 @@
           "v_in_max": 3.465
         },
         {
-          "id": "4879c43927cd",
+          "id": "583cb61f847f",
           "kind": "load",
           "name": "VCCO DDR (PS DDR IO)",
           "signal_name": "VCCO_DDR",
@@ -728,8 +728,8 @@
           "pins": "bank 502",
           "description": "",
           "datasheet": "DS187 / DS191",
-          "parent_id": "467138d8069d",
-          "block_id": "c71f0202254b",
+          "parent_id": "c3cc2f97af3e",
+          "block_id": "b20efb05c38c",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -752,7 +752,7 @@
           "v_in_max": 1.575
         },
         {
-          "id": "878f77c664ec",
+          "id": "a057e15e3ab2",
           "kind": "load",
           "name": "VDD+VDDQ",
           "signal_name": "VDD_DDR",
@@ -761,8 +761,8 @@
           "pins": "VDD/VDDQ balls",
           "description": "",
           "datasheet": "",
-          "parent_id": "467138d8069d",
-          "block_id": "0f0582b1b215",
+          "parent_id": "c3cc2f97af3e",
+          "block_id": "84444df4955d",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -783,7 +783,7 @@
           "v_in_max": 1.575
         },
         {
-          "id": "41997c0f7621",
+          "id": "e4743c3d4799",
           "kind": "load",
           "name": "VREFDQ/CA",
           "signal_name": "VREF_DDR",
@@ -792,8 +792,8 @@
           "pins": "VREF balls",
           "description": "",
           "datasheet": "",
-          "parent_id": "467138d8069d",
-          "block_id": "0f0582b1b215",
+          "parent_id": "c3cc2f97af3e",
+          "block_id": "84444df4955d",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -814,7 +814,7 @@
           "v_in_max": 1.575
         },
         {
-          "id": "1f81d73d50ed",
+          "id": "e8e7f2e9f09b",
           "kind": "load",
           "name": "VDD+VDDQ",
           "signal_name": "VDD_DDR",
@@ -823,8 +823,8 @@
           "pins": "VDD/VDDQ balls",
           "description": "",
           "datasheet": "",
-          "parent_id": "467138d8069d",
-          "block_id": "997c9d364315",
+          "parent_id": "c3cc2f97af3e",
+          "block_id": "8cb24c321abe",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -845,7 +845,7 @@
           "v_in_max": 1.575
         },
         {
-          "id": "9f439f9d1c27",
+          "id": "84f4a26cab7b",
           "kind": "load",
           "name": "VREFDQ/CA",
           "signal_name": "VREF_DDR",
@@ -854,8 +854,8 @@
           "pins": "VREF balls",
           "description": "",
           "datasheet": "",
-          "parent_id": "467138d8069d",
-          "block_id": "997c9d364315",
+          "parent_id": "c3cc2f97af3e",
+          "block_id": "8cb24c321abe",
           "note_ids": [],
           "scenario_overrides": {
             "Low Power": {
@@ -876,7 +876,7 @@
           "v_in_max": 1.575
         },
         {
-          "id": "07215dfbb457",
+          "id": "16a53250e3fd",
           "kind": "load",
           "name": "AVDD/DVDD 3.3V",
           "signal_name": "PHY_3V3",
@@ -885,8 +885,8 @@
           "pins": "AVDDH/DVDDH",
           "description": "",
           "datasheet": "",
-          "parent_id": "8e8d1858cbe6",
-          "block_id": "6d5628647707",
+          "parent_id": "8948f80b503d",
+          "block_id": "29815dff7cd8",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -900,7 +900,7 @@
           "v_in_max": 3.465
         },
         {
-          "id": "9a50f99df755",
+          "id": "a2ada09e8333",
           "kind": "load",
           "name": "Core 1.2V",
           "signal_name": "PHY_1V2",
@@ -909,8 +909,8 @@
           "pins": "DVDDL/AVDDL",
           "description": "",
           "datasheet": "",
-          "parent_id": "f14acdd2c5f1",
-          "block_id": "6d5628647707",
+          "parent_id": "5a79696fffe5",
+          "block_id": "29815dff7cd8",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -924,7 +924,7 @@
           "v_in_max": 1.26
         },
         {
-          "id": "b03a58140515",
+          "id": "517711cab290",
           "kind": "load",
           "name": "VDD33",
           "signal_name": "USB_3V3",
@@ -933,8 +933,8 @@
           "pins": "VDD33",
           "description": "",
           "datasheet": "",
-          "parent_id": "8e8d1858cbe6",
-          "block_id": "4a6ae8677f82",
+          "parent_id": "8948f80b503d",
+          "block_id": "50b8519f4880",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -948,7 +948,7 @@
           "v_in_max": 3.6
         },
         {
-          "id": "15ce42845e41",
+          "id": "883697d9b63e",
           "kind": "load",
           "name": "VDD18",
           "signal_name": "USB_1V8",
@@ -957,8 +957,8 @@
           "pins": "VDD18",
           "description": "",
           "datasheet": "",
-          "parent_id": "b50f35793aaf",
-          "block_id": "4a6ae8677f82",
+          "parent_id": "a50c17a0b782",
+          "block_id": "50b8519f4880",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -972,7 +972,7 @@
           "v_in_max": 1.95
         },
         {
-          "id": "968598e0fead",
+          "id": "b450b4ab461d",
           "kind": "load",
           "name": "VDD 3.3V",
           "signal_name": "CLK_3V3",
@@ -981,8 +981,8 @@
           "pins": "VDD",
           "description": "",
           "datasheet": "",
-          "parent_id": "8e8d1858cbe6",
-          "block_id": "98d34eb218f5",
+          "parent_id": "8948f80b503d",
+          "block_id": "d808abb5efb4",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -996,7 +996,7 @@
           "v_in_max": 3.465
         },
         {
-          "id": "9fa49576c63f",
+          "id": "31c91e11c0ff",
           "kind": "load",
           "name": "VDDA 1.8V",
           "signal_name": "CLK_1V8",
@@ -1005,8 +1005,8 @@
           "pins": "VDDA",
           "description": "",
           "datasheet": "",
-          "parent_id": "20dbc4e24c5f",
-          "block_id": "98d34eb218f5",
+          "parent_id": "e5dc44984454",
+          "block_id": "d808abb5efb4",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -1020,7 +1020,7 @@
           "v_in_max": 1.89
         },
         {
-          "id": "5da78ade384d",
+          "id": "f21d53187c41",
           "kind": "load",
           "name": "VCC",
           "signal_name": "QSPI_3V3",
@@ -1029,8 +1029,8 @@
           "pins": "VCC",
           "description": "",
           "datasheet": "",
-          "parent_id": "8e8d1858cbe6",
-          "block_id": "8731f5bc27de",
+          "parent_id": "8948f80b503d",
+          "block_id": "8e1b9ba7f89c",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -1044,7 +1044,7 @@
           "v_in_max": 3.6
         },
         {
-          "id": "41cf46c1695e",
+          "id": "5761e8e8fb47",
           "kind": "load",
           "name": "SD VDD",
           "signal_name": "SD_3V3",
@@ -1053,8 +1053,8 @@
           "pins": "VDD",
           "description": "",
           "datasheet": "",
-          "parent_id": "8e8d1858cbe6",
-          "block_id": "ff73c58a1a3b",
+          "parent_id": "8948f80b503d",
+          "block_id": "259e420329d4",
           "note_ids": [],
           "scenario_overrides": {},
           "collapsed": false,
@@ -1070,105 +1070,105 @@
       ],
       "blocks": [
         {
-          "id": "ca46c719a28e",
+          "id": "28c0687c6980",
           "name": "Input Protection",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "2881b39fa12f",
+          "id": "d99dfa7a93ce",
           "name": "5V Intermediate Bus (U10)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "39075d95741e",
+          "id": "f756c84989ab",
           "name": "3.3V Buck (U11)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "0f97c3fd2f8c",
+          "id": "70a4855a97de",
           "name": "1.8V Buck (U12)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "a605f43fb519",
+          "id": "ba67358a8f68",
           "name": "1.0V Core Buck (U13)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "df3c1e519e83",
+          "id": "f3c988e60162",
           "name": "1.5V DDR Buck (U14)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "1c01a77f212c",
+          "id": "4b5b1d356de2",
           "name": "1.2V PHY LDO (U15)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "c71f0202254b",
+          "id": "b20efb05c38c",
           "name": "Zynq XC7Z020 (U1)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "0f0582b1b215",
+          "id": "84444df4955d",
           "name": "DDR3L x16 #1 (U2)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "997c9d364315",
+          "id": "8cb24c321abe",
           "name": "DDR3L x16 #2 (U3)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "6d5628647707",
+          "id": "29815dff7cd8",
           "name": "GigE PHY (U4)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "4a6ae8677f82",
+          "id": "50b8519f4880",
           "name": "USB PHY (U5)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "98d34eb218f5",
+          "id": "d808abb5efb4",
           "name": "Clock Gen (U6)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "8731f5bc27de",
+          "id": "8e1b9ba7f89c",
           "name": "QSPI Flash (U7)",
           "description": "",
           "color": "#7c5cff",
           "collapsed": false
         },
         {
-          "id": "ff73c58a1a3b",
+          "id": "259e420329d4",
           "name": "SD Card (J2)",
           "description": "",
           "color": "#7c5cff",
@@ -1177,14 +1177,14 @@
       ]
     },
     {
-      "id": "5e70430bfdc5",
+      "id": "a5fc4698e478",
       "name": "Battery Backup",
       "description": "Coin-cell keeps the Zynq RTC domain alive.",
       "orientation": "TD",
       "detail_default": "",
       "elements": [
         {
-          "id": "ce684299b710",
+          "id": "28eefaef75b4",
           "kind": "source",
           "name": "CR2032 Coin Cell",
           "signal_name": "VBAT",
@@ -1208,7 +1208,7 @@
           "limit_value": 0.01
         },
         {
-          "id": "d62d7d056611",
+          "id": "d64ace0b453f",
           "kind": "series",
           "name": "Battery ESR + Diode",
           "signal_name": "VBAT_RTC",
@@ -1217,7 +1217,7 @@
           "pins": "",
           "description": "",
           "datasheet": "",
-          "parent_id": "ce684299b710",
+          "parent_id": "28eefaef75b4",
           "block_id": null,
           "note_ids": [],
           "scenario_overrides": {},
@@ -1235,7 +1235,7 @@
           "p_max": null
         },
         {
-          "id": "e7d8fc3e0674",
+          "id": "604108011035",
           "kind": "load",
           "name": "RTC Backup",
           "signal_name": "VBAT_RTC_LD",
@@ -1244,7 +1244,7 @@
           "pins": "VBAT",
           "description": "",
           "datasheet": "",
-          "parent_id": "d62d7d056611",
+          "parent_id": "d64ace0b453f",
           "block_id": null,
           "note_ids": [],
           "scenario_overrides": {},
@@ -1264,7 +1264,7 @@
   ],
   "notes": [
     {
-      "id": "c72aa5af1b15",
+      "id": "9f09c3f9e20d",
       "parent_id": null,
       "title": "Power Budget Sources",
       "body_md": "# Power budget references\n\nEvery number in the tree traces back to a note here so the budget is **auditable**.\n\n- Input brick: label rating 12 V / 2 A (24 W)\n- Zynq rails: Xilinx DS191 operating ranges, DS187 typical currents\n- Regulator efficiencies: vendor datasheet curves at our operating point\n",
@@ -1273,52 +1273,52 @@
       "order": 0
     },
     {
-      "id": "37e234733ff5",
-      "parent_id": "c72aa5af1b15",
+      "id": "d850a1e47d23",
+      "parent_id": "9f09c3f9e20d",
       "title": "Zynq XC7Z020 rails (DS191)",
       "body_md": "## Operating windows used\n\n| Rail | Min | Typ | Max |\n|---|---|---|---|\n| VCCINT/VCCPINT/VCCBRAM | 0.95 | 1.00 | 1.05 |\n| VCCAUX/VCCPAUX/VCCPLL | 1.71 | 1.80 | 1.89 |\n| VCCO 3.3 V banks | 3.135 | 3.30 | 3.465 |\n| VCCO DDR 1.5 V | 1.425 | 1.50 | 1.575 |\n\nCurrents are placeholder XPE-style estimates — replace with your design's Xilinx Power Estimator output.\n",
       "images": {},
       "linked_element_ids": [
-        "450dd5ca1d0d",
-        "94ff673637aa",
-        "5231843a02af",
-        "f63b1a902386",
-        "ac6b6d7a8c80",
-        "28010dd56bb2",
-        "70c23fbe96de",
-        "49f6ab47872b",
-        "4879c43927cd"
+        "5727fd35862d",
+        "be98e64eaaae",
+        "7e8a3090bad9",
+        "033332ca2ca1",
+        "9143d31a4f6d",
+        "0fe4223e97ed",
+        "db2e903d50a8",
+        "4503506a58c5",
+        "583cb61f847f"
       ],
       "order": 0
     },
     {
-      "id": "eb46f41bcdab",
-      "parent_id": "c72aa5af1b15",
+      "id": "62d05cf6807a",
+      "parent_id": "9f09c3f9e20d",
       "title": "Ferrite bead selection",
       "body_md": "## Bead DCR discipline\n\nBead DCR × worst-case rail current must stay well inside every downstream device's minimum input voltage.\n\n- FB2 (core rail): 10 mΩ · 2 A = 20 mV drop — fine.\n- **FB3 (clock 1V8): 1.5 Ω is the WRONG part** — at ~150 mA it drops ≈225 mV and violates the Si5341 1.71 V minimum. The tree flags this as a violation on purpose; swap for a ≤50 mΩ bead.\n",
       "images": {},
       "linked_element_ids": [
-        "35a4e1b1d010",
-        "c6dfaddf2d36",
-        "20dbc4e24c5f",
-        "968598e0fead",
-        "9fa49576c63f"
+        "07723eef8377",
+        "054b970cec42",
+        "e5dc44984454",
+        "b450b4ab461d",
+        "31c91e11c0ff"
       ],
       "order": 1
     },
     {
-      "id": "5b944bc2658a",
-      "parent_id": "c72aa5af1b15",
+      "id": "2ebe12ac0819",
+      "parent_id": "9f09c3f9e20d",
       "title": "Regulator modelling",
       "body_md": "## Regulators as blocks\n\nEach regulator is a block holding the converter **and** its own controller Iq as a separate input-rail load, so self-consumption is budgeted explicitly.\n\nThe 1.0 V core buck (U13) intentionally runs above 90 % of its 2.2 A limit to demonstrate low-margin flagging — pick the 4 A variant for real designs.\n",
       "images": {},
       "linked_element_ids": [
-        "8c63dfba644a",
-        "8e8d1858cbe6",
-        "b50f35793aaf",
-        "f3bb9680fe73",
-        "467138d8069d",
-        "f14acdd2c5f1"
+        "8d4684af3b36",
+        "8948f80b503d",
+        "a50c17a0b782",
+        "14a20a315533",
+        "c3cc2f97af3e",
+        "5a79696fffe5"
       ],
       "order": 2
     }

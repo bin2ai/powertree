@@ -261,6 +261,7 @@ class MainWindow(QMainWindow):
         add(m_export, "PDF report (trees + margins + notes)…", self._export_pdf)
         add(m_export, "Excel macro-enabled report (.xlsm)…", self._export_excel)
         add(m_export, "Flowchart image (HD PNG)…", self._export_png)
+        add(m_export, "Solved tree table (CSV)…", self._export_csv)
         m_export.addSeparator()
         add(m_export, "Notes → Markdown…", lambda: self._export_notes("md"))
         add(m_export, "Notes → HTML…", lambda: self._export_notes("html"))
@@ -356,10 +357,15 @@ class MainWindow(QMainWindow):
             f"⛔ {errs} violations · ⚠️ {warns} low margins"
         state = f" · state: ◈ {self.active_scenario}" \
             if self.active_scenario else ""
+        from ..api import tree_metrics
+        metrics = tree_metrics(tree, self.results)
+        eff = f" · η {metrics['efficiency_pct']:g} % · " \
+              f"loss {fmt_si(metrics['p_loss_typ'], 'W')}" \
+            if metrics["efficiency_pct"] is not None else ""
         self.status_label.setText(
             f"{tree.name}{state} — source power: {fmt_si(mn.p_out, 'W')} min / "
-            f"{fmt_si(typ.p_out, 'W')} typ / {fmt_si(mx.p_out, 'W')} max · "
-            f"{len(tree.elements)} elements · {health}")
+            f"{fmt_si(typ.p_out, 'W')} typ / {fmt_si(mx.p_out, 'W')} max"
+            f"{eff} · {len(tree.elements)} elements · {health}")
 
     def _mark_dirty(self):
         self.dirty = True
@@ -913,6 +919,20 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Image export", f"Export failed:\n{exc}")
             return
         self.statusBar().showMessage(f"HD flowchart image written: {path}", 6000)
+
+    def _export_csv(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export solved table (CSV)",
+            f"{self.project.name}_table.csv", "CSV (*.csv)")
+        if not path:
+            return
+        from ..api import export_csv
+        try:
+            export_csv(self.project, path)
+        except Exception as exc:
+            QMessageBox.critical(self, "CSV export", f"Export failed:\n{exc}")
+            return
+        self.statusBar().showMessage(f"CSV table written: {path}", 6000)
 
     def _export_notes(self, fmt: str):
         ext = {"md": "Markdown (*.md)", "html": "HTML (*.html)",
