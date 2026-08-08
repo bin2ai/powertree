@@ -297,7 +297,7 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
     flow.append(Spacer(1, 10))
     from ..api import tree_metrics
     orows = [["Power tree", "Source", "P typ", "P max", "η end-to-end",
-              "Loss typ", "Findings"]]
+              "Loss typ", "Cost", "Area", "Findings"]]
     all_results = {}
     all_metrics = {}
     total_errs = total_warns = 0
@@ -321,10 +321,14 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
             fmt_si(mx.p_out, "W") if mx else "—",
             f"{eff:g} %" if eff is not None else "—",
             fmt_si(metrics["p_loss_typ"], "W"),
+            f"{metrics['cost_total']:g}"
+            if metrics["cost_total"] is not None else "—",
+            f"{metrics['area_total_mm2']:g}"
+            if metrics["area_total_mm2"] is not None else "—",
             f"{errs} err / {warns} warn" if (errs or warns) else "clean"])
     ot = Table(orows, hAlign="LEFT",
-               colWidths=[38 * mm, 34 * mm, 18 * mm, 18 * mm, 22 * mm,
-                          18 * mm, 24 * mm])
+               colWidths=[33 * mm, 28 * mm, 16 * mm, 16 * mm, 20 * mm,
+                          16 * mm, 15 * mm, 15 * mm, 22 * mm])
     ot.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),

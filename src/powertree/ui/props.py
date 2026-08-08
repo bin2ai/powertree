@@ -22,25 +22,76 @@ TOPOLOGIES = ["buck", "boost", "buck-boost", "ldo", "isolated", "generic",
 
 
 class OptionalFloatEdit(QLineEdit):
-    """Blank means 'not set' (None); otherwise a float."""
+    """Blank means 'not set' (None); otherwise a value with SI suffixes
+    accepted ('100m', '4.7u', '2.2k')."""
 
     committed = Signal()
 
     def __init__(self, value, placeholder="not set"):
         super().__init__()
+        from ..units import si_text
         self.setPlaceholderText(placeholder)
         if value is not None:
-            self.setText(f"{value:g}")
-        self.editingFinished.connect(self.committed)
+            self.setText(si_text(value))
+        self.editingFinished.connect(self._commit)
+
+    def _commit(self):
+        from ..units import parse_si
+        text = self.text().strip()
+        if text and parse_si(text) is None:
+            self.setStyleSheet("border-color: #f43f5e;")
+            return
+        self.setStyleSheet("")
+        self.committed.emit()
 
     def value(self):
-        text = self.text().strip().replace(",", ".")
+        from ..units import parse_si
+        text = self.text().strip()
         if not text:
             return None
-        try:
-            return float(text)
-        except ValueError:
-            return None
+        return parse_si(text)
+
+
+class SIEdit(QLineEdit):
+    """Electrical value entry with SI suffixes: type '100m', '4.7u', '2.2k',
+    '3.3' — displayed back in engineering notation. Fires valueEdited(float)
+    only on a valid, changed commit."""
+
+    valueEdited = Signal(float)
+
+    def __init__(self, value: float, unit: str = "", minimum=None,
+                 maximum=None):
+        super().__init__()
+        from ..units import si_text
+        self._unit = unit
+        self._min = minimum
+        self._max = maximum
+        self._value = float(value)
+        self.setText(si_text(self._value))
+        if unit:
+            self.setPlaceholderText(unit)
+            self.setToolTip(f"Value in {unit} — SI suffixes accepted "
+                            f"(e.g. 100m, 4.7u, 2.2k)")
+        self.editingFinished.connect(self._commit)
+
+    def _commit(self):
+        from ..units import parse_si, si_text
+        value = parse_si(self.text())
+        if value is None:
+            self.setStyleSheet("border-color: #f43f5e;")
+            return
+        if self._min is not None:
+            value = max(self._min, value)
+        if self._max is not None:
+            value = min(self._max, value)
+        self.setStyleSheet("")
+        self.setText(si_text(value))
+        if value != self._value:
+            self._value = value
+            self.valueEdited.emit(value)
+
+    def value(self) -> float:
+        return self._value
 
 
 class PropertyPanel(QScrollArea):
@@ -112,6 +163,14 @@ class PropertyPanel(QScrollArea):
         setter(value)
         if not self.in_draft:       # drafts only touch the model on Save
             self.changed.emit()
+
+    def _si_row(self, form, label: str, unit: str, value: float, setter,
+                lo=None, hi=None) -> "SIEdit":
+        """A labeled SI-suffix value field wired straight into the model."""
+        edit = SIEdit(value, unit, lo, hi)
+        edit.valueEdited.connect(lambda v: self._commit(setter, v))
+        form.addRow(f"{label} ({unit})" if unit else label, edit)
+        return edit
 
     def _header(self, text, color="#e8ecf5"):
         lbl = QLabel(text)
@@ -224,6 +283,19 @@ class PropertyPanel(QScrollArea):
                 bform.addRow(f"{len(self.tree.block_members(block.id))} member(s)",
                              row)
 
+    def _open_datasheet(self, target: str):
+        target = (target or "").strip()
+        if not target:
+            return
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        if target.lower().startswith(("http://", "https://")):
+            QDesktopServices.openUrl(QUrl(target))
+        else:
+            import os
+            if os.path.exists(target):
+                QDesktopServices.openUrl(QUrl.fromLocalFile(target))
+
     def _remove_block(self, block):
         self.tree.remove_block(block.id)
         self.structureChanged.emit()
@@ -244,15 +316,12 @@ class PropertyPanel(QScrollArea):
 
         self._text(el.name, lambda v: setattr(el, "name", v), form, "Name")
 
-        # ---- electrical, per kind ----
+        # ---- electrical, per kind (SI-suffix entry: 100m, 4.7u, 2.2k) ----
         if isinstance(el, Source):
             for attr, label in (("v_min", "V min"), ("v_typ", "V typ"),
                                 ("v_max", "V max")):
-                sb = self._spin(getattr(el, attr), 0, 10000, 4, "V")
-                sb.valueChanged.connect(
-                    lambda v, a=attr: self._commit(
-                        lambda x: setattr(el, a, x), v))
-                form.addRow(label, sb)
+                self._si_row(form, label, "V", getattr(el, attr),
+                             lambda x, a=attr: setattr(el, a, x), lo=0)
             self._limit_rows(el, form, "Supply limit")
         elif isinstance(el, Converter):
             topo = QComboBox()
@@ -310,14 +379,11 @@ class PropertyPanel(QScrollArea):
             form.addRow("η curve (I:η)", curve)
             for attr, label in (("vout_min", "Vout min"), ("vout_typ", "Vout typ"),
                                 ("vout_max", "Vout max")):
-                sb = self._spin(getattr(el, attr), 0, 10000, 4, "V")
-                sb.valueChanged.connect(
-                    lambda v, a=attr: self._commit(lambda x: setattr(el, a, x), v))
-                form.addRow(label, sb)
-            iq = self._spin(el.quiescent_ma, 0, 1e6, 4, "mA", 0.1)
-            iq.valueChanged.connect(
-                lambda v: self._commit(lambda x: setattr(el, "quiescent_ma", x), v))
-            form.addRow("Quiescent I", iq)
+                self._si_row(form, label, "V", getattr(el, attr),
+                             lambda x, a=attr: setattr(el, a, x), lo=0)
+            self._si_row(form, "Quiescent I", "A", el.quiescent_ma / 1000.0,
+                         lambda x: setattr(el, "quiescent_ma", x * 1000.0),
+                         lo=0)
             self._limit_rows(el, form, "Output limit")
         elif isinstance(el, Load):
             lt = QComboBox()
@@ -327,24 +393,20 @@ class PropertyPanel(QScrollArea):
                 lambda v: self._commit(lambda x: setattr(el, "load_type", x), v))
             form.addRow("Load type", lt)
             if el.load_type == LoadType.RESISTIVE:
-                res = self._spin(el.resistance_ohm, 1e-6, 1e9, 6, "Ω", 1.0)
-                res.setToolTip("I = V/R solved at the delivered rail voltage")
-                res.valueChanged.connect(
-                    lambda v: self._commit(
-                        lambda x: setattr(el, "resistance_ohm", x), v))
-                form.addRow("Resistance", res)
+                edit = self._si_row(
+                    form, "Resistance", "Ω", el.resistance_ohm,
+                    lambda x: setattr(el, "resistance_ohm", x), lo=1e-6)
+                edit.setToolTip(edit.toolTip() + " · I = V/R at the "
+                                "delivered rail voltage")
             else:
                 unit = "A" if el.load_type == LoadType.CURRENT else "W"
-                val = self._spin(el.value_typ, 0, 1e6, 6, unit, 0.01)
-                val.valueChanged.connect(
-                    lambda v: self._commit(
-                        lambda x: setattr(el, "value_typ", x), v))
-                form.addRow("Value (typ)", val)
+                self._si_row(form, "Value (typ)", unit, el.value_typ,
+                             lambda x: setattr(el, "value_typ", x), lo=0)
                 vmax = OptionalFloatEdit(el.value_max, "same as typ")
                 vmax.committed.connect(
                     lambda: self._commit(
                         lambda x: setattr(el, "value_max", x), vmax.value()))
-                form.addRow("Value (peak)", vmax)
+                form.addRow(f"Value (peak, {unit})", vmax)
             duty = self._spin(el.duty_cycle_pct, 0, 100, 2, "%", 5.0)
             duty.setToolTip("min/typ corners budget the duty-weighted "
                             "AVERAGE draw; the max corner keeps full peak")
@@ -368,20 +430,16 @@ class PropertyPanel(QScrollArea):
             st.currentTextChanged.connect(
                 lambda v: self._commit(lambda x: setattr(el, "series_type", x), v))
             form.addRow("Type", st)
-            res = self._spin(el.resistance_ohm, 1e-6, 1e9, 6, "Ω", 0.001)
-            res.setToolTip("DC resistance (DCR for ferrite beads / inductors) "
-                           "— this is what the DC solver uses")
-            res.valueChanged.connect(
-                lambda v: self._commit(
-                    lambda x: setattr(el, "resistance_ohm", x), v))
-            form.addRow("Resistance", res)
-            ind = self._spin(el.inductance_uh, 0, 1e9, 4, "µH", 0.1)
-            ind.setToolTip("Informational — ignored by the DC solver, shown "
-                           "on the card for AC/filtering awareness")
-            ind.valueChanged.connect(
-                lambda v: self._commit(
-                    lambda x: setattr(el, "inductance_uh", x), v))
-            form.addRow("Inductance", ind)
+            res = self._si_row(
+                form, "Resistance", "Ω", el.resistance_ohm,
+                lambda x: setattr(el, "resistance_ohm", x), lo=1e-6)
+            res.setToolTip(res.toolTip() + " · DCR for ferrite beads / "
+                           "inductors — what the DC solver uses")
+            ind = self._si_row(
+                form, "Inductance", "H", el.inductance_uh / 1e6,
+                lambda x: setattr(el, "inductance_uh", x * 1e6), lo=0)
+            ind.setToolTip(ind.toolTip() + " · informational — ignored by "
+                           "the DC solver")
             self._text(el.rating, lambda v: setattr(el, "rating", v),
                        form, "Rating (text)")
             for attr, label, tip in (
@@ -467,8 +525,31 @@ class PropertyPanel(QScrollArea):
         self._text(el.part_number, lambda v: setattr(el, "part_number", v),
                    mform, "Part number")
         self._text(el.pins, lambda v: setattr(el, "pins", v), mform, "Pin(s)")
-        self._text(el.datasheet, lambda v: setattr(el, "datasheet", v),
-                   mform, "Datasheet")
+        ds_row = QHBoxLayout()
+        ds_edit = QLineEdit(el.datasheet or "")
+        ds_edit.editingFinished.connect(
+            lambda e=ds_edit: self._commit(
+                lambda v: setattr(el, "datasheet", v), e.text()))
+        ds_row.addWidget(ds_edit, 1)
+        ds_open = QPushButton("↗")
+        ds_open.setFixedWidth(28)
+        ds_open.setToolTip("Open the datasheet link/file")
+        ds_open.clicked.connect(lambda: self._open_datasheet(ds_edit.text()))
+        ds_row.addWidget(ds_open)
+        mform.addRow("Datasheet", ds_row)
+        cost = OptionalFloatEdit(el.cost, "not set")
+        cost.setToolTip("Unit cost — rolled up per tree for architecture "
+                        "comparison")
+        cost.committed.connect(
+            lambda: self._commit(lambda x: setattr(el, "cost", x),
+                                 cost.value()))
+        mform.addRow("Cost", cost)
+        area = OptionalFloatEdit(el.area_mm2, "not set")
+        area.setToolTip("Occupied board area (mm²) — rolled up per tree")
+        area.committed.connect(
+            lambda: self._commit(lambda x: setattr(el, "area_mm2", x),
+                                 area.value()))
+        mform.addRow("Area (mm²)", area)
         desc = QPlainTextEdit(el.description)
         desc.setMaximumHeight(64)
         desc.textChanged.connect(
@@ -513,10 +594,8 @@ class PropertyPanel(QScrollArea):
         combo.currentTextChanged.connect(
             lambda v: self._commit(lambda x: setattr(el, "limit_type", x), v))
         form.addRow(label, combo)
-        sb = self._spin(el.limit_value, 0, 1e9, 4, "A / W", 0.1)
-        sb.valueChanged.connect(
-            lambda v: self._commit(lambda x: setattr(el, "limit_value", x), v))
-        form.addRow("Limit value", sb)
+        self._si_row(form, "Limit value", "A / W", el.limit_value,
+                     lambda x: setattr(el, "limit_value", x), lo=0)
 
     def _assign_block(self, el: Element, combo: QComboBox):
         data = combo.currentData()

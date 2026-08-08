@@ -26,6 +26,27 @@ loads.
 All elements share metadata: name, **signal (net) name**, ref des, part
 number, pin(s), datasheet link, free notes, linked documentation.
 
+### Entering values
+Every electrical field accepts **SI suffixes**: type `100m` (or `100 mA`),
+`4.7u`, `2.2k`, `50 mΩ`, `1e-3` — displayed back in engineering notation.
+No more counting zeros.
+
+### Cost & area (architecture comparison axes)
+Any element can carry an optional **cost** and **board area (mm²)**
+(Properties → Metadata). Totals roll up per tree into the executive
+summary, HTML report, `info`/`compare` CLI output and the
+**Compare architectures** view (Project menu, Ctrl+Shift+A) — model
+architecture variants as separate trees and compare power, efficiency,
+loss, cost, area, growth capacity and findings side by side.
+
+### Modelling PMICs (multi-output regulators)
+Model a multi-output PMIC as **one block containing one converter per
+output rail**, all sharing the physical part's refdes, plus a shared Iq
+load — the `Quad-output PMIC` template (Ctrl+T) shows the pattern. DC
+budgeting is per-rail, so this is electrically exact for power planning;
+collapse the block to see the device as a single card with its rails as
+pins.
+
 ### Modelling conventions (industry practice)
 - **Ferrite beads / inductors** are series elements: the DC solver uses their
   DCR; inductance is displayed for AC awareness only.

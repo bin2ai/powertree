@@ -336,6 +336,10 @@ class NodeItem(QGraphicsObject):
             return
         super().mousePressEvent(event)
 
+    def mouseDoubleClickEvent(self, event):
+        self.canvas.renameRequested.emit(self.el.id)
+        event.accept()
+
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
             self.canvas.node_dragged(self)
@@ -518,6 +522,10 @@ class BlockSummaryItem(QGraphicsObject):
             return
         super().mousePressEvent(event)
 
+    def mouseDoubleClickEvent(self, event):
+        self.canvas.blockExpandRequested.emit(self.block.id)
+        event.accept()
+
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
             self.canvas.block_dragged(self)
@@ -556,9 +564,10 @@ class GridGroupItem(QGraphicsPathItem):
 
 class BlockItem(QGraphicsPathItem):
     def __init__(self, block, rect: tuple, power_text: str,
-                 continued: bool = False):
+                 continued: bool = False, canvas=None):
         super().__init__()
         self.continued = continued
+        self.canvas = canvas
         x, y, w, h = rect
         path = QPainterPath()
         path.addRoundedRect(QRectF(x, y, w, h), 12, 12)
@@ -573,6 +582,14 @@ class BlockItem(QGraphicsPathItem):
         self.block = block
         self.label_rect = QRectF(x + 8, y + 3, w - 16, 16)
         self.power_text = power_text
+
+    def mouseDoubleClickEvent(self, event):
+        # double-click a block outline: collapse it to a summary node
+        if self.canvas is not None:
+            self.canvas.blockExpandRequested.emit(self.block.id)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
@@ -637,6 +654,7 @@ class PowerCanvas(QGraphicsView):
     elementSelected = Signal(str)
     collapseToggled = Signal(str)
     blockExpandRequested = Signal(str)       # block id (expand summary node)
+    renameRequested = Signal(str)            # element id (double-clicked)
     nodeMoved = Signal()
     contextRequested = Signal(str, object)   # rid ('' = canvas, 'blk:x' = block), QPoint
 
@@ -694,7 +712,8 @@ class PowerCanvas(QGraphicsView):
             for rect, _members, primary in clusters:
                 power = fmt_si(p, "W") if primary else ""
                 item = BlockItem(block, rect, power,
-                                 continued=multi and not primary)
+                                 continued=multi and not primary,
+                                 canvas=self)
                 self.scene_.addItem(item)
 
         # edges (labels resolved by the layout, incl. block-pin nets)
@@ -969,12 +988,26 @@ class PowerCanvas(QGraphicsView):
     # ---------------------------------------------------------------- legend
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
-        if self.nodes and self.minimap_visible:
+        if not self.nodes:
+            # empty-tree hint orients first-time users
+            painter.save()
+            painter.resetTransform()
+            painter.setPen(QPen(Theme.text_dim))
+            painter.setFont(QFont("Segoe UI", 12))
+            vp = self.viewport()
+            painter.drawText(
+                QRectF(0, 0, vp.width(), vp.height()), Qt.AlignCenter,
+                "⊕  Add a source to begin (toolbar)\n"
+                "or press Ctrl+T for a device template\n"
+                "— every power tree starts at exactly one source —")
+            painter.restore()
+            return
+        if self.minimap_visible:
             painter.save()
             painter.resetTransform()
             self._draw_minimap(painter)
             painter.restore()
-        if not self.legend_visible or not self.nodes:
+        if not self.legend_visible:
             return
         painter.save()
         painter.resetTransform()
@@ -1140,6 +1173,7 @@ class _StubCanvas:
             pass
     collapseToggled = _Sig()
     blockExpandRequested = _Sig()
+    renameRequested = _Sig()
 
     def node_dragged(self, node):
         pass

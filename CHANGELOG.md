@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.9.0 — 2026-08-08
+
+The "most useful and user-friendly" release — implements the competitive
+audit vs. LTpowerPlanner (docs/AUDIT-2026-08-08-competitive.md), keeping
+everything deliberately small.
+
+- **SI-suffix value entry everywhere**: type `100m`, `4.7u`, `2.2k`,
+  `50 mΩ` in any electrical field; engineering-notation display; invalid
+  input flags red instead of silently mangling.
+- **Cost + board-area fields** (optional, per element) with per-tree
+  rollups in the executive summary, HTML report, Excel, CLI and library
+  parts — the LTpowerPlanner comparison axes, vendor-neutral.
+- **Compare architectures** (Project menu, Ctrl+Shift+A; CLI `compare`;
+  MCP tool): every tree side by side on power, efficiency, loss, cost,
+  area, growth capacity and findings.
+- **PMIC modelling pattern**: `Quad-output PMIC` template + user-guide
+  section — one block, one converter per rail, shared refdes and Iq;
+  electrically exact for DC budgeting without a DAG rewrite.
+- **Gesture polish**: clickable datasheet links (↗), F2 / double-click
+  rename, double-click a block outline to collapse (and a summary node to
+  expand), first-run empty-canvas hint.
+
+Explicit non-changes (per the audit's no-over-engineering rule): no SPICE,
+no vendor part database, no cloud, no DAG, no UI modes.
+
 ## 0.8.0 — 2026-08-08
 
 Implements every actionable finding of the v0.7.0 audit

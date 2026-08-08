@@ -101,6 +101,39 @@ TEMPLATES: list = [
                   "", "GND pin"),
         ]),
     DeviceTemplate(
+        key="pmic_quad", name="Quad-output PMIC (block pattern)",
+        category="Regulators",
+        description="Multi-output PMIC modelled the PowerTree way: ONE block "
+                    "holding one converter per output rail (sharing the "
+                    "refdes) plus the shared quiescent current — budgeting "
+                    "is per-rail anyway, so this is electrically exact for "
+                    "DC power planning.",
+        rails=["VIN"],
+        items=[
+            TemplateItem("converter", "BUCK1 (core)", "VIN", {
+                "topology": "buck", "efficiency_pct": 88.0,
+                "signal_name": "PMIC_1V0",
+                "vout_min": 0.99, "vout_typ": 1.00, "vout_max": 1.01,
+                "limit_type": LimitType.CURRENT, "limit_value": 3.0}),
+            TemplateItem("converter", "BUCK2 (io)", "VIN", {
+                "topology": "buck", "efficiency_pct": 90.0,
+                "signal_name": "PMIC_1V8",
+                "vout_min": 1.78, "vout_typ": 1.80, "vout_max": 1.82,
+                "limit_type": LimitType.CURRENT, "limit_value": 2.0}),
+            TemplateItem("converter", "BUCK3 (periph)", "VIN", {
+                "topology": "buck", "efficiency_pct": 90.0,
+                "signal_name": "PMIC_3V3",
+                "vout_min": 3.27, "vout_typ": 3.30, "vout_max": 3.33,
+                "limit_type": LimitType.CURRENT, "limit_value": 2.0}),
+            TemplateItem("converter", "LDO1 (analog)", "VIN", {
+                "topology": "ldo", "efficiency_pct": 60.0,
+                "signal_name": "PMIC_1V2A",
+                "vout_min": 1.19, "vout_typ": 1.20, "vout_max": 1.21,
+                "limit_type": LimitType.CURRENT, "limit_value": 0.3}),
+            _load("PMIC Iq (shared)", "VIN", 0.002, 0.004, None, None,
+                  "", "VIN pin"),
+        ]),
+    DeviceTemplate(
         key="ddr3", name="DDR3L SDRAM (x16, 4Gb)", category="Memory",
         part_number="MT41K256M16",
         description="Single DDR3L device: VDD/VDDQ at 1.35/1.5 V with JEDEC "

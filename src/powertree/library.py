@@ -23,7 +23,7 @@ LIBRARY_ENV = "POWERTREE_LIBRARY"
 # element fields captured into a part, per kind (instance-specific fields
 # like refdes/ids/positions are intentionally excluded)
 _COMMON_FIELDS = ("signal_name", "part_number", "pins", "datasheet",
-                  "description")
+                  "description", "cost", "area_mm2")
 _KIND_FIELDS = {
     ElementKind.CONVERTER: ("topology", "ratio", "seq_order",
                             "efficiency_pct", "eff_points", "vout_min",

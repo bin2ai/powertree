@@ -122,6 +122,13 @@ def nets() -> dict:
 
 
 @mcp.tool()
+def compare_trees() -> list:
+    """Architecture comparison across every tree: power, efficiency, loss,
+    cost, area, growth capacity and findings side by side."""
+    return api.compare_trees(_project())
+
+
+@mcp.tool()
 def rail_headroom(tree: str = "") -> list:
     """Remaining budget per limited rail (worst-case corner): how much extra
     load each source/converter can still accept before breaking its limit."""

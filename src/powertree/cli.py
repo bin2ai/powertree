@@ -115,6 +115,27 @@ def cmd_search(args):
     return 0
 
 
+def cmd_compare(args):
+    rows = api.compare_trees(api.load(args.project))
+    if _p(rows, args.json):
+        return 0
+    for r in rows:
+        eff = f"{r['efficiency_pct']:g} %" if r["efficiency_pct"] is not None \
+            else "—"
+        cost = f"{r['cost_total']:g}" if r["cost_total"] is not None else "—"
+        area = f"{r['area_total_mm2']:g} mm²" \
+            if r["area_total_mm2"] is not None else "—"
+        growth = f"+{r['growth_pct']:g} %" if r["growth_pct"] is not None \
+            else "—"
+        state = "clean" if not (r["errors"] or r["warnings"]) else \
+            f"{r['errors']} err / {r['warnings']} warn"
+        print(f"  {r['tree']:<26s} P {fmt_si(r['p_typ_w'], 'W'):>9s} typ · "
+              f"η {eff:>7s} · loss {fmt_si(r['p_loss_typ_w'], 'W'):>9s} · "
+              f"cost {cost:>7s} · area {area:>10s} · growth {growth:>8s} · "
+              f"{state}")
+    return 0
+
+
 def cmd_bom(args):
     parts = api.parts_list(api.load(args.project))
     if _p(parts, args.json):
@@ -235,6 +256,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("bom", help="parts list aggregated by part number")
     common(p)
     p.set_defaults(fn=cmd_bom)
+
+    p = sub.add_parser("compare",
+                       help="architecture comparison across all trees")
+    common(p)
+    p.set_defaults(fn=cmd_compare)
 
     p = sub.add_parser("growth",
                        help="max uniform load growth before first violation")

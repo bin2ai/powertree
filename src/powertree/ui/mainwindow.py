@@ -164,6 +164,7 @@ class MainWindow(QMainWindow):
         self.canvas.elementSelected.connect(self._on_canvas_select)
         self.canvas.collapseToggled.connect(self._on_collapse_toggle)
         self.canvas.blockExpandRequested.connect(self._toggle_block_collapsed)
+        self.canvas.renameRequested.connect(self._rename_element)
         self.canvas.nodeMoved.connect(self._mark_dirty)
         self.canvas.contextRequested.connect(self._canvas_context_menu)
         self.list_view = TreeListView()
@@ -398,6 +399,7 @@ class MainWindow(QMainWindow):
             "Ctrl+Shift+C")
         add(m_edit, "Copy solved &table", self._copy_table,
             "Ctrl+Shift+T")
+        add(m_edit, "Re&name element", self._rename_element, "F2")
         add(m_edit, "Du&plicate element (with subtree)",
             self._duplicate_element, "Ctrl+D")
         add(m_edit, "Copy element subtree", self._copy_subtree, "Ctrl+Alt+C")
@@ -411,6 +413,8 @@ class MainWindow(QMainWindow):
             "Ctrl+T")
         add(m_project, "Component &library…", self._open_library, "Ctrl+L")
         add(m_project, "Global &nets…", self._show_nets, "Ctrl+G")
+        add(m_project, "Compare &architectures…", self._compare_trees,
+            "Ctrl+Shift+A")
         add(m_project, "Project &properties…", self._project_properties)
         m_project.addSeparator()
         add(m_project, "&Validate project (all trees + states)…",
@@ -857,6 +861,10 @@ class MainWindow(QMainWindow):
     def _show_nets(self):
         from .nets_dialog import NetsDialog
         NetsDialog(self.project, self).exec()
+
+    def _compare_trees(self):
+        from .compare_dialog import CompareDialog
+        CompareDialog(self.project, self).exec()
 
     def _open_library(self):
         from .library_dialog import LibraryDialog
@@ -1393,6 +1401,21 @@ class MainWindow(QMainWindow):
         self.refresh(full=True)
         self.canvas.select_element(root.id)
         self._log_status(f"Pasted '{root.name}' under '{parent.name}'")
+
+    def _rename_element(self, el_id: str = ""):
+        """F2 or double-click a card: quick rename."""
+        tree = self.current_tree
+        if tree is None:
+            return
+        el = tree.elements.get(el_id) or self._selected_element()
+        if el is None:
+            return
+        name, ok = QInputDialog.getText(self, "Rename", "Name:",
+                                        text=el.name)
+        if ok and name.strip():
+            el.name = name.strip()
+            self.selected_element_id = el.id
+            self.refresh(full=True)
 
     def _duplicate_element(self):
         el = self._selected_element()

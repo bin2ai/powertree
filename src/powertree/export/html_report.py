@@ -83,11 +83,16 @@ def export_html_report(project: Project, path: str,
         m = tree_metrics(tree, solved[tree.id])
         eff = f"{m['efficiency_pct']:g} %" if m["efficiency_pct"] is not None \
             else "—"
+        extras = ""
+        if m["cost_total"] is not None:
+            extras += f" · cost <b>{m['cost_total']:g}</b>"
+        if m["area_total_mm2"] is not None:
+            extras += f" · <b>{m['area_total_mm2']:g} mm²</b>"
         parts.append(
             f"<div class='kpi'>{_e(tree.name)}<br>"
             f"<b>{fmt_si(m['p_source_typ'], 'W')}</b> typ · "
             f"<b>{fmt_si(m['p_source_max'], 'W')}</b> max · η <b>{eff}</b>"
-            f"</div>")
+            f"{extras}</div>")
 
     for tree in project.trees:
         r = solved[tree.id]

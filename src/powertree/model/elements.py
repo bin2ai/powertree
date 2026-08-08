@@ -61,6 +61,9 @@ class Element:
     pins: str = ""              # free text: pin name/number(s)
     description: str = ""       # free-text notes on the element itself
     datasheet: str = ""         # link / path to reference document
+    # optional architecture-comparison axes (rolled up per tree/project)
+    cost: Optional[float] = None      # unit cost, currency-agnostic
+    area_mm2: Optional[float] = None  # occupied board area
     # --- structure ---
     parent_id: Optional[str] = None
     block_id: Optional[str] = None

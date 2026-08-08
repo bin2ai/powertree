@@ -102,12 +102,50 @@ def tree_metrics(tree: PowerTree, results=None, top_n: int = 5) -> dict:
             "pct_of_source": round(p / typ.p_out * 100.0, 1)
             if typ.p_out > 1e-12 else 0.0}
            for el, p in consumers]
+    cost_items = [el for el in tree.elements.values() if el.cost is not None]
+    area_items = [el for el in tree.elements.values()
+                  if el.area_mm2 is not None]
     return {"p_source_typ": round(typ.p_out, 9),
             "p_source_max": round(mx.p_out, 9),
             "p_loads_typ": round(p_loads, 9),
             "p_loss_typ": round(p_loss, 9),
             "efficiency_pct": round(eff, 1) if eff is not None else None,
+            "cost_total": round(sum(el.cost for el in cost_items), 4)
+            if cost_items else None,
+            "cost_items": len(cost_items),
+            "area_total_mm2": round(sum(el.area_mm2 for el in area_items), 2)
+            if area_items else None,
+            "area_items": len(area_items),
             "top_consumers": top}
+
+
+def compare_trees(project: Project) -> list:
+    """Side-by-side architecture comparison: one row per tree with power,
+    efficiency, loss, cost, area, growth capacity and findings — the
+    'which architecture wins' table."""
+    from .model.calc import solve_tree as _solve
+    rows = []
+    for tree in project.trees:
+        r = _solve(tree)
+        m = tree_metrics(tree, r)
+        g = growth_analysis(tree, project) if tree.source else \
+            {"max_growth_pct": None, "bottleneck": None}
+        active, waived = split_waived(project, r.warnings)
+        rows.append({
+            "tree": tree.name,
+            "elements": len(tree.elements),
+            "p_typ_w": m["p_source_typ"],
+            "p_max_w": m["p_source_max"],
+            "efficiency_pct": m["efficiency_pct"],
+            "p_loss_typ_w": m["p_loss_typ"],
+            "cost_total": m["cost_total"],
+            "area_total_mm2": m["area_total_mm2"],
+            "growth_pct": g["max_growth_pct"],
+            "bottleneck": g["bottleneck"],
+            "errors": sum(1 for w in active if w.severity == "error"),
+            "warnings": sum(1 for w in active if w.severity == "warn"),
+            "waived": len(waived)})
+    return rows
 
 
 def rail_headroom(tree: PowerTree, results=None) -> list:
