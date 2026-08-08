@@ -80,6 +80,20 @@ Running log. Keep current; this is printed into context at session start.
   owner bin2ai, repo powertree, workflow publish.yml, environment pypi),
   then re-run the v0.5.0 publish workflow (gh run rerun) to go live.
 
+## v0.8.0 (2026-08-08) — full audit implementation
+- Audit written to docs/AUDIT-2026-08-07.md (every finding tracked to a
+  disposition); deferred architecture in docs/ROADMAP.md (DAG sources,
+  temp-derating curves, cross-tree net solving, code signing, i18n).
+- Implemented: rail-grid wrapping (7.4x narrower at 501 elements), minimap,
+  threaded exports + render size cap, reveal-on-jump, drag-drop reparent,
+  multi-delete, subtree copy/paste; resistive loads, duty cycle, unregulated
+  topology, sequencing checks; library versioning/conflicts/project-lib;
+  report logo/tree-picker/waived toggle; command palette, message log,
+  arrow-key nav, light print theme; ruff+cov+linux CI, dynamic version,
+  release assets, CONTRIBUTING/templates, file log + crash dialog,
+  migrations, unsaved autosave, README screenshots.
+- 96 tests + 16-group GUI smoke; ruff clean.
+
 ## Open threads
 - User returns 6am 2026-08-07; wants hourly self-eval iterations (ongoing).
 - Roadmap: undo/redo, temperature derating, CSV/BOM import, part library
