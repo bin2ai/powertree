@@ -99,13 +99,13 @@ adding modes would be over-engineering.
 
 ## 6. Recommended work, in order (all deliberately small)
 
-| # | Item | Size | Why |
-|---|---|---|---|
-| 1 | SI-suffix unit entry in every electrical field | S | kills the #1 daily friction |
-| 2 | Cost ($) + area (mm²) optional fields with tree/exec rollups | S | matches LTpowerPlanner's compare axes |
-| 3 | "Compare trees" table (GUI dialog + PDF/HTML section) | S–M | first-class architecture comparison |
-| 4 | Clickable datasheet links; F2/double-click rename; double-click block collapse; empty-canvas hint | S | expected gestures |
-| 5 | PMIC modeling pattern: doc section + shipped multi-rail PMIC template | S | closes the perception gap honestly |
+| # | Item | Size | Why | Status |
+|---|---|---|---|---|
+| 1 | SI-suffix unit entry in every electrical field | S | kills the #1 daily friction | **shipped v0.9.0** |
+| 2 | Cost ($) + area (mm²) optional fields with tree/exec rollups | S | matches LTpowerPlanner's compare axes | **shipped v0.9.0** |
+| 3 | "Compare trees" table (GUI dialog + CLI/MCP + report columns) | S–M | first-class architecture comparison | **shipped v0.9.0** |
+| 4 | Clickable datasheet links; F2/double-click rename; double-click block collapse; empty-canvas hint | S | expected gestures | **shipped v0.9.0** |
+| 5 | PMIC modeling pattern: doc section + shipped multi-rail PMIC template | S | closes the perception gap honestly | **shipped v0.9.0** |
 
 Everything above is additive UI/fields — no solver, format-breaking, or
 architectural change. Deferred items remain in ROADMAP.md unchanged.

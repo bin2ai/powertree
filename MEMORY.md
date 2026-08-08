@@ -94,6 +94,14 @@ Running log. Keep current; this is printed into context at session start.
   migrations, unsaved autosave, README screenshots.
 - 96 tests + 16-group GUI smoke; ruff clean.
 
+## v0.9.0 (2026-08-08) — competitive audit slate
+- Competitive audit vs LTpowerPlanner in docs/AUDIT-2026-08-08-competitive.md
+  (comparison matrix, anti-over-engineering list). All 5 recommended items
+  shipped: SI-suffix entry (units.py + SIEdit), cost/area rollups, Compare
+  architectures (GUI/CLI/MCP), gesture polish (datasheet ↗, F2 rename,
+  dbl-click collapse, empty-canvas hint), PMIC block-pattern template.
+- 126 tests + 17-group smoke; ruff clean.
+
 ## Open threads
 - User returns 6am 2026-08-07; wants hourly self-eval iterations (ongoing).
 - Roadmap: undo/redo, temperature derating, CSV/BOM import, part library
