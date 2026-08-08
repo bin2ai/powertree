@@ -144,10 +144,17 @@ def element_lines(el: Element, results: TreeResults,
             pct = used / el.limit_value * 100 if el.limit_value else 0
             lines.append(f"limit {el.limit_value:g} {unit} · {pct:.0f} % used")
     elif el.kind == ElementKind.LOAD:
-        unit = "A" if el.load_type == LoadType.CURRENT else "W"
-        peak = f" / pk {el.value_max:g} {unit}" if el.value_max is not None else ""
-        lines.append(f"{el.load_type} load: {el.value_typ:g} {unit}{peak}")
-        lines.append(f"V in: {fmt_si(typ.v_in, 'V')} · P: {fmt_si(typ.p_in, 'W')}")
+        if el.load_type == LoadType.RESISTIVE:
+            lines.append(f"resistive load: {fmt_si(el.resistance_ohm, 'Ω')}")
+        else:
+            unit = "A" if el.load_type == LoadType.CURRENT else "W"
+            peak = f" / pk {el.value_max:g} {unit}" \
+                if el.value_max is not None else ""
+            lines.append(f"{el.load_type} load: {el.value_typ:g} {unit}{peak}")
+        duty = f" · duty {el.duty_cycle_pct:g} %" \
+            if el.duty_cycle_pct < 100 else ""
+        lines.append(f"V in: {fmt_si(typ.v_in, 'V')} · "
+                     f"P: {fmt_si(typ.p_in, 'W')}{duty}")
         if el.v_in_min is not None or el.v_in_max is not None:
             lo = f"{el.v_in_min:g}" if el.v_in_min is not None else "—"
             hi = f"{el.v_in_max:g}" if el.v_in_max is not None else "—"
@@ -517,6 +524,36 @@ class BlockSummaryItem(QGraphicsObject):
         return super().itemChange(change, value)
 
 
+class GridGroupItem(QGraphicsPathItem):
+    """Container around a wrapped rail grid: one rail, many loads, one edge."""
+
+    def __init__(self, rect: QRectF, net: str, count: int):
+        super().__init__()
+        path = QPainterPath()
+        path.addRoundedRect(rect, 10, 10)
+        self.setPath(path)
+        self.setBrush(QBrush(QColor(Theme.card_edge.red(),
+                                    Theme.card_edge.green(),
+                                    Theme.card_edge.blue(), 26)))
+        self.setPen(QPen(Theme.card_edge, 1.1, Qt.DashLine))
+        self.setZValue(-8)
+        self.rect_ = rect
+        self.net = net
+        self.count = count
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setFont(QFont("Segoe UI", 8, QFont.Bold))
+        painter.setPen(QPen(Theme.text_dim))
+        label = f"rail {self.net} · {self.count} loads" if self.net \
+            else f"{self.count} loads"
+        painter.drawText(
+            QRectF(self.rect_.x() + 10, self.rect_.y() + 3,
+                   self.rect_.width() - 20, 16),
+            Qt.AlignLeft | Qt.AlignVCenter, label)
+
+
 class BlockItem(QGraphicsPathItem):
     def __init__(self, block, rect: tuple, power_text: str,
                  continued: bool = False):
@@ -616,8 +653,11 @@ class PowerCanvas(QGraphicsView):
         self.nodes: dict[str, NodeItem] = {}
         self.edge_items: list = []
         self.legend_visible = True
+        self.minimap_visible = True
         self.detail_default = "standard"    # app-level display detail
         self.heat_mode = False              # tint cards by power draw
+        self.grid_threshold = 7             # wrap >=N leaf loads into a grid
+        self._minimap_rect = None           # viewport-coords rect when drawn
         self._rebuilding = False
         self.scene_.selectionChanged.connect(self._on_selection)
 
@@ -637,7 +677,9 @@ class PowerCanvas(QGraphicsView):
             return
 
         lay = L.compute_layout(tree, tree.orientation,
-                               detail_default=self.detail_default)
+                               detail_default=self.detail_default,
+                               grid_threshold=self.grid_threshold)
+        self._last_layout = lay
         horiz = tree.orientation == "LR"
         movable = tree.orientation == "custom"
 
@@ -671,9 +713,17 @@ class PowerCanvas(QGraphicsView):
                                              QPen(Qt.NoPen), QBrush(Theme.edge))
                 dot.setZValue(-4)
 
-        # nodes: element cards + collapsed-block summary nodes
+        # nodes: element cards + collapsed-block summary nodes + rail grids
         for rid in lay.render_nodes:
             size = lay.sizes[rid]
+            if rid in lay.grid_groups:
+                ginfo = lay.grid_groups[rid]
+                cx, cy = lay.positions[rid]
+                rect = QRectF(cx - size[0] / 2, cy - size[1] / 2,
+                              size[0], size[1])
+                self.scene_.addItem(GridGroupItem(rect, ginfo.net,
+                                                  len(ginfo.member_ids)))
+                continue
             if rid in lay.block_nodes:
                 info = lay.block_nodes[rid]
                 block = tree.blocks[info.block_id]
@@ -805,9 +855,125 @@ class PowerCanvas(QGraphicsView):
             node.setSelected(True)
             self.centerOn(node)
 
+    # ---------------------------------------------------- keyboard navigation
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right) \
+                and self.tree is not None:
+            current = None
+            for item in self.scene_.selectedItems():
+                if isinstance(item, NodeItem):
+                    current = item.el
+                    break
+            if current is None:
+                if self.tree.source and self.tree.source.id in self.nodes:
+                    self.select_element(self.tree.source.id)
+                event.accept()
+                return
+            target = None
+            if key == Qt.Key_Up:
+                target = self.tree.parent_of(current)
+            elif key == Qt.Key_Down:
+                kids = [c for c in self.tree.children_of(current.id)
+                        if c.id in self.nodes]
+                target = kids[0] if kids else None
+            else:
+                parent = self.tree.parent_of(current)
+                sibs = [c for c in
+                        self.tree.children_of(parent.id if parent else None)
+                        if c.id in self.nodes]
+                if current in sibs:
+                    i = sibs.index(current)
+                    j = i - 1 if key == Qt.Key_Left else i + 1
+                    if 0 <= j < len(sibs):
+                        target = sibs[j]
+            if target is not None and target.id in self.nodes:
+                self.select_element(target.id)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    # ---------------------------------------------------------------- minimap
+    def _draw_minimap(self, painter: QPainter):
+        lay = getattr(self, "_last_layout", None)
+        if lay is None or not lay.positions:
+            self._minimap_rect = None
+            return
+        bx, by, bw, bh = lay.bounds
+        if bw <= 0 or bh <= 0:
+            self._minimap_rect = None
+            return
+        mm_w = 190.0
+        mm_h = max(60.0, min(150.0, mm_w * bh / bw))
+        vp = self.viewport()
+        x = vp.width() - mm_w - 12
+        y = 12.0
+        self._minimap_rect = QRectF(x, y, mm_w, mm_h)
+        self._minimap_scale = min((mm_w - 8) / bw, (mm_h - 8) / bh)
+        painter.setBrush(QBrush(Theme.legend_bg))
+        painter.setPen(QPen(Theme.card_edge, 1))
+        painter.drawRoundedRect(self._minimap_rect, 6, 6)
+        s = self._minimap_scale
+        ox = x + 4 - bx * s
+        oy = y + 4 - by * s
+
+        def to_mini(px, py):
+            return QPointF(ox + px * s, oy + py * s)
+
+        painter.setPen(Qt.NoPen)
+        for rid, (cx, cy) in lay.positions.items():
+            w, h = lay.sizes[rid]
+            if rid in lay.block_nodes:
+                block = self.tree.blocks.get(lay.block_nodes[rid].block_id) \
+                    if self.tree else None
+                color = QColor(block.color) if block else Theme.select
+            elif rid.startswith("grid:"):
+                continue
+            else:
+                el = self.tree.elements.get(rid)
+                color = Theme.kinds.get(el.kind, Theme.text_dim) \
+                    if el is not None else Theme.text_dim
+            p = to_mini(cx - w / 2, cy - h / 2)
+            painter.setBrush(QBrush(color))
+            painter.drawRect(QRectF(p.x(), p.y(),
+                                    max(w * s, 1.5), max(h * s, 1.5)))
+        # viewport indicator
+        tl = self.mapToScene(0, 0)
+        br = self.mapToScene(vp.width(), vp.height())
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(Theme.highlight, 1.2))
+        p1 = to_mini(tl.x(), tl.y())
+        p2 = to_mini(br.x(), br.y())
+        view_rect = QRectF(p1, p2).intersected(
+            self._minimap_rect.adjusted(2, 2, -2, -2))
+        if not view_rect.isEmpty():
+            painter.drawRect(view_rect)
+
+    def mousePressEvent(self, event):
+        if self.minimap_visible and self._minimap_rect is not None and \
+                self._minimap_rect.contains(event.position()):
+            lay = getattr(self, "_last_layout", None)
+            if lay is not None:
+                bx, by, bw, bh = lay.bounds
+                s = self._minimap_scale
+                sx = bx + (event.position().x()
+                           - (self._minimap_rect.x() + 4)) / s
+                sy = by + (event.position().y()
+                           - (self._minimap_rect.y() + 4)) / s
+                self.centerOn(sx, sy)
+                self.viewport().update()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     # ---------------------------------------------------------------- legend
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
+        if self.nodes and self.minimap_visible:
+            painter.save()
+            painter.resetTransform()
+            self._draw_minimap(painter)
+            painter.restore()
         if not self.legend_visible or not self.nodes:
             return
         painter.save()
@@ -856,29 +1022,36 @@ class PowerCanvas(QGraphicsView):
 # headless HD rendering (used by image / PDF / notes exports)
 # ---------------------------------------------------------------------------
 
+MAX_IMAGE_SIDE = 16000   # px — QImage allocation safety cap
+
+
 def render_tree_image(tree: PowerTree, results: TreeResults,
                       orientation: str | None = None, scale: float = 3.0,
                       with_legend: bool = True, style: str | None = None,
                       detail_default: str = "standard",
-                      heat: bool = False) -> QImage:
+                      heat: bool = False, grid_threshold: int = 7) -> QImage:
     """Render a power tree to a high-resolution QImage (no window needed).
-    style: None = current Theme; 'dark' | 'print' force a palette."""
+    style: None = current Theme; 'dark' | 'print' force a palette. The
+    longest image side is capped (scale auto-reduces) so giant trees export
+    reliably instead of failing on allocation."""
     prev_style = Theme.style
     if style and style != prev_style:
         Theme.set_style(style)
     try:
         return _render_tree_image(tree, results, orientation, scale,
-                                  with_legend, detail_default, heat)
+                                  with_legend, detail_default, heat,
+                                  grid_threshold)
     finally:
         if style and style != prev_style:
             Theme.set_style(prev_style)
 
 
 def _render_tree_image(tree, results, orientation, scale, with_legend,
-                       detail_default, heat) -> QImage:
+                       detail_default, heat, grid_threshold) -> QImage:
     scene = QGraphicsScene()
     lay = L.compute_layout(tree, orientation or tree.orientation,
-                           detail_default=detail_default)
+                           detail_default=detail_default,
+                           grid_threshold=grid_threshold)
     canvas_stub = _StubCanvas()
     heat_map = _heat_fractions(tree, results, lay.visible) if heat else {}
     for bid, clusters in L.block_clusters(tree, lay).items():
@@ -898,6 +1071,14 @@ def _render_tree_image(tree, results, orientation, scale, with_legend,
         dot.setZValue(-4)
     for rid in lay.render_nodes:
         size = lay.sizes[rid]
+        if rid in lay.grid_groups:
+            ginfo = lay.grid_groups[rid]
+            cx, cy = lay.positions[rid]
+            rect = QRectF(cx - size[0] / 2, cy - size[1] / 2,
+                          size[0], size[1])
+            scene.addItem(GridGroupItem(rect, ginfo.net,
+                                        len(ginfo.member_ids)))
+            continue
         if rid in lay.block_nodes:
             info = lay.block_nodes[rid]
             block = tree.blocks[info.block_id]
@@ -918,6 +1099,9 @@ def _render_tree_image(tree, results, orientation, scale, with_legend,
     pad = 50.0
     legend_h = 120.0 if with_legend else 0.0
     src_rect = scene.itemsBoundingRect().adjusted(-pad, -pad - 34, pad, pad + legend_h)
+    longest = max(src_rect.width(), src_rect.height(), 1.0)
+    if longest * scale > MAX_IMAGE_SIDE:
+        scale = MAX_IMAGE_SIDE / longest     # cap: stay allocatable
     img = QImage(int(src_rect.width() * scale),
                  int(src_rect.height() * scale), QImage.Format_ARGB32)
     img.fill(Theme.bg)

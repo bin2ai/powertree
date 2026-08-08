@@ -20,6 +20,8 @@ DEFAULTS = {
     "pdf_include_images": True,
     "pdf_include_notes": True,
     "si_digits": 3.0,                # significant digits in displayed values
+    "minimap": True,                 # navigation minimap overlay
+    "grid_threshold": 7.0,           # wrap >=N leaf loads into a rail grid
 }
 
 

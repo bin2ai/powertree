@@ -4,7 +4,6 @@ lines, stats visibility and color. All settings persist in the project."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QTreeWidget,
     QTreeWidgetItem, QComboBox, QPushButton, QDoubleSpinBox, QPlainTextEdit,

@@ -78,11 +78,24 @@ class LibraryDialog(QDialog):
     # ------------------------------------------------------------------ data
     def _reload(self):
         self.list.clear()
-        for part in library.load_library():
-            item = QTreeWidgetItem(self.list, [
-                part["name"], part.get("category", "My Library"),
-                str(len(part.get("items", []))), "library"])
-            item.setData(0, Qt.UserRole, part)
+        sources = [(library.library_path(), "library")]
+        project_lib = library.project_library_path()
+        if project_lib:
+            sources.append((project_lib, "project"))
+        for path, label in sources:
+            for part in library.load_parts(path):
+                meta = part.get("meta") or {}
+                info = f"v{meta.get('version', 1)}"
+                if meta.get("author"):
+                    info += f" · {meta['author']}"
+                if meta.get("updated"):
+                    info += f" · {meta['updated']}"
+                item = QTreeWidgetItem(self.list, [
+                    f"{part['name']}  ({info})",
+                    part.get("category", "My Library"),
+                    str(len(part.get("items", []))), label])
+                item.setData(0, Qt.UserRole, part)
+                item.setData(0, Qt.UserRole + 1, path)
         for t in TEMPLATES:
             item = QTreeWidgetItem(self.list, [
                 t.name, t.category, str(len(t.items)), "built-in"])
@@ -134,25 +147,74 @@ class LibraryDialog(QDialog):
         if not ok:
             return
         block = blocks[names.index(name)]
+        target = None
+        project_lib = library.project_library_path()
+        if project_lib:
+            box = QMessageBox(self)
+            box.setWindowTitle("Save block as part")
+            box.setText("Save to which library?")
+            user_btn = box.addButton("My library (this PC)",
+                                     QMessageBox.ButtonRole.AcceptRole)
+            proj_btn = box.addButton("Project library (share via repo)",
+                                     QMessageBox.ButtonRole.AcceptRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.exec()
+            if box.clickedButton() is proj_btn:
+                target = project_lib
+            elif box.clickedButton() is not user_btn:
+                return
         try:
             part = library.block_to_part(self.tree, block.id)
-            library.add_part(part)
+            library.add_part(part, path=target)
         except ValueError as exc:
             QMessageBox.warning(self, "Save block", str(exc))
             return
         self._reload()
+        where = "the project library" if target else "your library"
         QMessageBox.information(
             self, "Save block",
             f"Saved '{part['name']}' ({len(part['items'])} elements) to "
-            "your library — available from Ctrl+T everywhere.")
+            f"{where} — available from Ctrl+T everywhere.")
 
     def _import(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Import library part(s)", "", "Library part (*.json)")
         if not path:
             return
+        # conflict handling: ask when any imported key already exists
         try:
-            parts = library.import_part(path)
+            with open(path, "r", encoding="utf-8") as fh:
+                import json as _json
+                incoming = _json.load(fh)
+            incoming = incoming if isinstance(incoming, list) else [incoming]
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Import", f"Import failed:\n{exc}")
+            return
+        existing = {p.get("key") for p in library.load_library()}
+        conflicts = [p.get("key") for p in incoming
+                     if p.get("key") in existing]
+        on_conflict = "overwrite"
+        if conflicts:
+            box = QMessageBox(self)
+            box.setWindowTitle("Import conflicts")
+            box.setText(f"{len(conflicts)} part(s) already exist "
+                        f"({', '.join(conflicts[:4])}…). How to handle?")
+            ow = box.addButton("Overwrite (bump version)",
+                               QMessageBox.ButtonRole.AcceptRole)
+            rn = box.addButton("Keep both (rename import)",
+                               QMessageBox.ButtonRole.AcceptRole)
+            sk = box.addButton("Skip conflicting",
+                               QMessageBox.ButtonRole.AcceptRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.exec()
+            if box.clickedButton() is rn:
+                on_conflict = "rename"
+            elif box.clickedButton() is sk:
+                on_conflict = "skip"
+            elif box.clickedButton() is not ow:
+                return
+        try:
+            parts = library.import_part(path, on_conflict=on_conflict)
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "Import", f"Import failed:\n{exc}")
             return
@@ -163,9 +225,18 @@ class LibraryDialog(QDialog):
     def _export(self):
         part = self._selected_part()
         if part is None:
-            QMessageBox.information(
-                self, "Export", "Select one of YOUR library parts "
-                "(built-ins ship with the app).")
+            # nothing selected (or a built-in): offer whole-library export
+            if QMessageBox.question(
+                    self, "Export",
+                    "Export your ENTIRE library to one file?") == \
+                    QMessageBox.StandardButton.Yes:
+                path, _ = QFileDialog.getSaveFileName(
+                    self, "Export library", "powertree_library.json",
+                    "Library (*.json)")
+                if path:
+                    library.export_library(path)
+                    QMessageBox.information(self, "Export",
+                                            f"Exported to {path}")
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Export part", f"{part['key']}.json",
@@ -176,14 +247,16 @@ class LibraryDialog(QDialog):
         QMessageBox.information(self, "Export", f"Exported to {path}")
 
     def _delete(self):
+        item = self.list.currentItem()
         part = self._selected_part()
         if part is None:
             QMessageBox.information(self, "Delete",
                                     "Built-in templates cannot be deleted.")
             return
+        source_path = item.data(0, Qt.UserRole + 1)
         if QMessageBox.question(
                 self, "Delete part",
-                f"Remove '{part['name']}' from your library?") == \
+                f"Remove '{part['name']}' from this library?") == \
                 QMessageBox.StandardButton.Yes:
-            library.remove_part(part["key"])
+            library.remove_part(part["key"], path=source_path)
             self._reload()

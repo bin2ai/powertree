@@ -15,6 +15,12 @@ powertree-gui                      :: desktop app (opens with a Zynq demo board)
 powertree --help                   :: full CLI
 ```
 
+![Main window — Zynq carrier demo](docs/images/main_window.png)
+
+| Heat map (power draw) | Block designer (custom pins/size) |
+|---|---|
+| ![Heat map](docs/images/heat_map.png) | ![Block designer](docs/images/block_designer.png) |
+
 ## What it does
 
 - **Projects hold many power trees** (`.ptproj`, versioned JSON, self-contained).

@@ -18,8 +18,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .elements import (
-    PowerTree, Element, Source, Converter, Load, SeriesElement,
-    ElementKind, LoadType, LimitType, V_EPS,
+    PowerTree, Element, Source, Converter, Load, ElementKind, LoadType, LimitType, V_EPS,
 )
 
 CORNERS = ("min", "typ", "max")
@@ -73,7 +72,11 @@ def _source_v(src: Source, corner: str) -> float:
     return {"min": src.v_min, "typ": src.v_typ, "max": src.v_max}[corner]
 
 
-def _conv_vout(conv: Converter, corner: str) -> float:
+def _conv_vout(conv: Converter, corner: str, v_in: float = None) -> float:
+    if conv.topology == "unregulated":
+        # Vout tracks Vin (transformer / charge pump ratio, pass switch...)
+        base = v_in if v_in is not None else conv.vout_typ
+        return max(base * conv.ratio, V_EPS)
     return {"min": conv.vout_min, "typ": conv.vout_typ, "max": conv.vout_max}[corner]
 
 
@@ -81,6 +84,18 @@ def _load_value(load: Load, corner: str) -> float:
     if corner == "max" and load.value_max is not None:
         return load.value_max
     return load.value_typ
+
+
+def _load_current(load: Load, corner: str, v: float) -> float:
+    """Load input current at rail voltage v for a corner. min/typ corners use
+    the duty-weighted average draw; the max corner keeps the full peak."""
+    duty = load.duty if corner != "max" else 1.0
+    if load.load_type == LoadType.RESISTIVE:
+        return duty * v / load.resistance
+    value = _load_value(load, corner)
+    if load.load_type == LoadType.POWER:
+        return duty * value / v
+    return duty * value          # current-type
 
 
 def solve_tree(tree: PowerTree, scenario: str | None = None) -> TreeResults:
@@ -112,7 +127,8 @@ def _solve_corner(tree: PowerTree, src: Source, corner: str, out: TreeResults) -
     # initial top-down pass with zero series drop
     def init_v(el: Element, v_rail: float):
         v_in[el.id] = v_rail
-        v_next = _conv_vout(el, corner) if el.kind == ElementKind.CONVERTER else v_rail
+        v_next = _conv_vout(el, corner, v_rail) \
+            if el.kind == ElementKind.CONVERTER else v_rail
         for child in tree.children_of(el.id):
             init_v(child, v_next)
 
@@ -124,12 +140,11 @@ def _solve_corner(tree: PowerTree, src: Source, corner: str, out: TreeResults) -
         def solve_i(el: Element) -> float:
             v = max(v_in[el.id], V_FLOOR)
             if el.kind == ElementKind.LOAD:
-                val = _load_value(el, corner)
-                i = val if el.load_type == LoadType.CURRENT else val / v
+                i = _load_current(el, corner, v)
             elif el.kind == ElementKind.CONVERTER:
                 p_out = sum(solve_i(c) * max(v_in[c.id], V_FLOOR)
                             for c in tree.children_of(el.id))
-                vout = max(_conv_vout(el, corner), V_FLOOR)
+                vout = max(_conv_vout(el, corner, v), V_FLOOR)
                 eff = el.efficiency_at(p_out / vout)
                 i = p_out / (eff * v) + el.quiescent_ma / 1000.0
             else:   # series element or (recursively) source
@@ -150,7 +165,7 @@ def _solve_corner(tree: PowerTree, src: Source, corner: str, out: TreeResults) -
             v_in[el.id] = new
             max_dv = max(max_dv, abs(new - old))
             if el.kind == ElementKind.CONVERTER:
-                v_next = _conv_vout(el, corner)
+                v_next = _conv_vout(el, corner, v_in[el.id])
             elif el.kind == ElementKind.SERIES:
                 v_next = v_in[el.id] - i_in.get(el.id, 0.0) * el.resistance
             else:
@@ -174,11 +189,10 @@ def _solve_corner(tree: PowerTree, src: Source, corner: str, out: TreeResults) -
         child_res = [finalize(c) for c in children]
 
         if el.kind == ElementKind.LOAD:
-            val = _load_value(el, corner)
-            res.i_in = val if el.load_type == LoadType.CURRENT else val / v
+            res.i_in = _load_current(el, corner, v)
             res.p_in = res.i_in * v
         elif el.kind == ElementKind.CONVERTER:
-            res.v_out = _conv_vout(el, corner)
+            res.v_out = _conv_vout(el, corner, v)
             res.p_out = sum(c.p_in for c in child_res)
             res.i_out = res.p_out / max(res.v_out, V_FLOOR)
             eff = el.efficiency_at(res.i_out)
@@ -255,14 +269,31 @@ def _check_margins(tree: PowerTree, src: Source, out: TreeResults) -> None:
                 res = out.get(el.id, corner)
                 if el.topology in ("buck", "ldo") and res.v_out > res.v_in + V_EPS:
                     warn(Warning_("warn", el.id, corner,
-                                  f"'{el.name}' is a step-down ({el.topology}) but Vout "
-                                  f"{res.v_out:.3g} V > Vin {res.v_in:.3g} V in '{corner}' corner."))
+                                  f"'{el.name}' is a step-down ({el.topology})"
+                                  f" but Vout {res.v_out:.3g} V > Vin "
+                                  f"{res.v_in:.3g} V in '{corner}' corner."))
                     break
                 if el.topology == "boost" and res.v_out < res.v_in - V_EPS:
                     warn(Warning_("warn", el.id, corner,
                                   f"'{el.name}' is a boost but Vout {res.v_out:.3g} V < Vin "
                                   f"{res.v_in:.3g} V in '{corner}' corner."))
                     break
+
+        # power-up sequencing: a rail must not enable before its input rail
+        if el.kind == ElementKind.CONVERTER and el.seq_order > 0:
+            parent = tree.parent_of(el)
+            while parent is not None:
+                if parent.kind == ElementKind.CONVERTER:
+                    if parent.seq_order > 0 and \
+                            parent.seq_order > el.seq_order:
+                        warn(Warning_("warn", el.id, "typ",
+                                      f"Sequencing: '{el.name}' enables at "
+                                      f"step {el.seq_order} but its input "
+                                      f"rail '{parent.name}' only enables at "
+                                      f"step {parent.seq_order} — the rail "
+                                      "powers up before its supply."))
+                    break
+                parent = tree.parent_of(parent)
 
         # load input-voltage window
         if el.kind == ElementKind.LOAD:

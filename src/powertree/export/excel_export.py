@@ -24,7 +24,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from ..model.elements import Project, PowerTree, ElementKind, LimitType, LoadType
-from ..model.calc import solve_tree, TreeResults, block_power, fmt_si
+from ..model.calc import solve_tree, TreeResults, block_power
 
 DARK = "FF1A2030"
 KIND_FILLS = {

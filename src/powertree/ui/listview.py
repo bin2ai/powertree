@@ -22,6 +22,7 @@ HEADERS = ["Element", "Type", "RefDes", "Signal", "Block",
 
 class TreeListView(QTreeWidget):
     elementSelected = Signal(str)
+    reparentRequested = Signal(str, str)   # element id, new parent id
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -29,6 +30,9 @@ class TreeListView(QTreeWidget):
         self.setHeaderLabels(HEADERS)
         self.setAlternatingRowColors(True)
         self.setUniformRowHeights(True)
+        self.setSelectionMode(QTreeWidget.ExtendedSelection)
+        self.setDragDropMode(QTreeWidget.InternalMove)
+        self.setDefaultDropAction(Qt.MoveAction)
         self.itemSelectionChanged.connect(self._on_select)
         self._items: dict[str, QTreeWidgetItem] = {}
         for i, w in enumerate([190, 72, 60, 100, 110, 64, 70, 70, 62, 70,
@@ -106,6 +110,19 @@ class TreeListView(QTreeWidget):
             if el_id in self._items:
                 self._items[el_id].setSelected(True)
         self.blockSignals(False)
+
+    def dropEvent(self, event):
+        """Drag-drop re-parenting: dropping onto an item re-attaches the
+        dragged element under it (the model validates; views rebuild)."""
+        target = self.itemAt(event.position().toPoint())
+        dragged = self.currentItem()
+        event.ignore()                    # the model owns the change
+        if target is None or dragged is None or target is dragged:
+            return
+        el_id = dragged.data(0, Qt.UserRole)
+        parent_id = target.data(0, Qt.UserRole)
+        if el_id and parent_id:
+            self.reparentRequested.emit(el_id, parent_id)
 
     def _on_select(self):
         items = self.selectedItems()

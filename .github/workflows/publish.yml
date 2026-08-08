@@ -1,14 +1,15 @@
-name: Publish to PyPI
+name: Publish
 
-# Publishes when a version tag (v*) is pushed. Uses PyPI Trusted Publishing —
-# one-time setup on pypi.org: Account -> Publishing -> add a "pending
-# publisher" with project name `powertree`, owner `bin2ai`, repository
-# `powertree`, workflow `publish.yml`, environment `pypi`. No API token
-# needs to be stored anywhere.
+# On a version tag (v*): build + check the package, publish to PyPI via
+# Trusted Publishing, build the Windows installer, and create the GitHub
+# Release with the installer zip attached.
 
 on:
   push:
     tags: ["v*"]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -31,6 +32,26 @@ jobs:
           name: dist
           path: dist/
 
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+      - name: Build PyInstaller app
+        run: pyinstaller installer/PowerTree.spec --noconfirm
+      - name: Package portable installer zip
+        shell: pwsh
+        run: installer/build_installer.ps1 -SkipPyInstaller
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: dist/PowerTree-Setup.zip
+
   publish:
     needs: build
     runs-on: ubuntu-latest
@@ -43,3 +64,36 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  release:
+    needs: [build, installer]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer
+          path: out/
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: out/
+      - name: Extract changelog section for this tag
+        run: |
+          python - <<'EOF'
+          import os, re
+          tag = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(rf"^## {re.escape(tag)}[^\n]*\n(.*?)(?=^## |\Z)",
+                        text, re.S | re.M)
+          body = m.group(1).strip() if m else "See CHANGELOG.md."
+          open("release_notes.md", "w", encoding="utf-8").write(body)
+          EOF
+      - name: Create GitHub Release with assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "PowerTree $GITHUB_REF_NAME" \
+            --notes-file release_notes.md \
+            out/PowerTree-Setup.zip out/*.whl out/*.tar.gz

@@ -16,9 +16,13 @@ def run_gui(project_path: str | None = None) -> int:
     from PySide6.QtWidgets import QApplication
 
     from .. import APP_NAME
+    from ..logging_setup import setup_logging, install_gui_excepthook
     from ..model import serialization
     from .theme import apply_theme
     from .mainwindow import MainWindow
+
+    setup_logging()
+    install_gui_excepthook()
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(APP_NAME)

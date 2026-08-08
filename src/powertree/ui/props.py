@@ -17,7 +17,8 @@ from ..model.elements import (
     ElementKind, LimitType, LoadType,
 )
 
-TOPOLOGIES = ["buck", "boost", "buck-boost", "ldo", "isolated", "generic"]
+TOPOLOGIES = ["buck", "boost", "buck-boost", "ldo", "isolated", "generic",
+              "unregulated"]
 
 
 class OptionalFloatEdit(QLineEdit):
@@ -260,6 +261,22 @@ class PropertyPanel(QScrollArea):
             topo.currentTextChanged.connect(
                 lambda v: self._commit(lambda x: setattr(el, "topology", x), v))
             form.addRow("Topology", topo)
+            if el.topology == "unregulated":
+                ratio = self._spin(el.ratio, 0.001, 1000, 6, "× Vin", 0.05)
+                ratio.setToolTip("Unregulated stage: Vout = ratio × Vin "
+                                 "(transformer, charge pump, pass switch)")
+                ratio.valueChanged.connect(
+                    lambda v: self._commit(
+                        lambda x: setattr(el, "ratio", x), v))
+                form.addRow("Ratio", ratio)
+            seq = self._spin(el.seq_order, 0, 999, 0, "", 1.0)
+            seq.setToolTip("Power-up sequence step (0 = unspecified). "
+                           "Flagged when a rail enables before its input "
+                           "rail.")
+            seq.valueChanged.connect(
+                lambda v: self._commit(
+                    lambda x: setattr(el, "seq_order", int(x)), v))
+            form.addRow("Sequence step", seq)
             eff = self._spin(el.efficiency_pct, 1, 100, 2, "%", 1.0)
             eff.setToolTip("Flat efficiency — used when no curve is entered "
                            "below")
@@ -304,21 +321,37 @@ class PropertyPanel(QScrollArea):
             self._limit_rows(el, form, "Output limit")
         elif isinstance(el, Load):
             lt = QComboBox()
-            lt.addItems([LoadType.CURRENT, LoadType.POWER])
+            lt.addItems(list(LoadType.ALL))
             lt.setCurrentText(el.load_type)
             lt.currentTextChanged.connect(
                 lambda v: self._commit(lambda x: setattr(el, "load_type", x), v))
             form.addRow("Load type", lt)
-            unit = "A" if el.load_type == LoadType.CURRENT else "W"
-            val = self._spin(el.value_typ, 0, 1e6, 6, unit, 0.01)
-            val.valueChanged.connect(
-                lambda v: self._commit(lambda x: setattr(el, "value_typ", x), v))
-            form.addRow("Value (typ)", val)
-            vmax = OptionalFloatEdit(el.value_max, "same as typ")
-            vmax.committed.connect(
-                lambda: self._commit(
-                    lambda x: setattr(el, "value_max", x), vmax.value()))
-            form.addRow("Value (peak)", vmax)
+            if el.load_type == LoadType.RESISTIVE:
+                res = self._spin(el.resistance_ohm, 1e-6, 1e9, 6, "Ω", 1.0)
+                res.setToolTip("I = V/R solved at the delivered rail voltage")
+                res.valueChanged.connect(
+                    lambda v: self._commit(
+                        lambda x: setattr(el, "resistance_ohm", x), v))
+                form.addRow("Resistance", res)
+            else:
+                unit = "A" if el.load_type == LoadType.CURRENT else "W"
+                val = self._spin(el.value_typ, 0, 1e6, 6, unit, 0.01)
+                val.valueChanged.connect(
+                    lambda v: self._commit(
+                        lambda x: setattr(el, "value_typ", x), v))
+                form.addRow("Value (typ)", val)
+                vmax = OptionalFloatEdit(el.value_max, "same as typ")
+                vmax.committed.connect(
+                    lambda: self._commit(
+                        lambda x: setattr(el, "value_max", x), vmax.value()))
+                form.addRow("Value (peak)", vmax)
+            duty = self._spin(el.duty_cycle_pct, 0, 100, 2, "%", 5.0)
+            duty.setToolTip("min/typ corners budget the duty-weighted "
+                            "AVERAGE draw; the max corner keeps full peak")
+            duty.valueChanged.connect(
+                lambda v: self._commit(
+                    lambda x: setattr(el, "duty_cycle_pct", x), v))
+            form.addRow("Duty cycle", duty)
             lo = OptionalFloatEdit(el.v_in_min, "no check")
             lo.committed.connect(
                 lambda: self._commit(lambda x: setattr(el, "v_in_min", x), lo.value()))

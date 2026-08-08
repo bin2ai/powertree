@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from powertree.model.elements import (   # noqa: E402
-    Project, PowerTree, Source, Converter, Load, SeriesElement,
+    PowerTree, Source, Converter, Load, SeriesElement,
     LimitType, LoadType,
 )
 from powertree.model.calc import solve_tree, block_power, fmt_si  # noqa: E402

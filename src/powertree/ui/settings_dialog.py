@@ -50,6 +50,20 @@ class SettingsDialog(QDialog):
         self.legend_check.setChecked(settings.get("legend"))
         form.addRow("Legend", self.legend_check)
 
+        self.minimap_check = QCheckBox("Show navigation minimap")
+        self.minimap_check.setChecked(settings.get("minimap"))
+        form.addRow("Minimap", self.minimap_check)
+
+        self.grid_spin = QDoubleSpinBox()
+        self.grid_spin.setRange(0, 50)
+        self.grid_spin.setDecimals(0)
+        self.grid_spin.setValue(settings.get("grid_threshold"))
+        self.grid_spin.setSpecialValueText("off")
+        self.grid_spin.setToolTip(
+            "When one rail feeds at least this many leaf loads, they wrap "
+            "into a compact grid instead of an endless row (0 = off)")
+        form.addRow("Rail-grid wrap at", self.grid_spin)
+
         self.autofit_check = QCheckBox("Fit view when switching trees")
         self.autofit_check.setChecked(settings.get("autofit_on_switch"))
         form.addRow("Auto-fit", self.autofit_check)
@@ -100,6 +114,8 @@ class SettingsDialog(QDialog):
         s.set("default_orientation", self.orient_combo.currentData())
         s.set("png_scale", self.png_scale.value())
         s.set("si_digits", self.si_digits.value())
+        s.set("minimap", self.minimap_check.isChecked())
+        s.set("grid_threshold", self.grid_spin.value())
         s.set("pdf_include_images", self.pdf_images.isChecked())
         s.set("pdf_include_notes", self.pdf_notes.isChecked())
         self.accept()

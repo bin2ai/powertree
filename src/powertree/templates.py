@@ -17,8 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .model.elements import (
-    PowerTree, Element, Converter, Load, SeriesElement, Block, ElementKind,
-    LoadType, LimitType,
+    PowerTree, Element, Converter, Load, SeriesElement, LoadType, LimitType,
 )
 
 
@@ -204,9 +203,12 @@ def load_user_templates() -> list:
     warning — they must never break the app."""
     import json
     import os
-    from .library import library_path
+    from .library import library_path, project_library_path
     out = []
-    for path in _user_template_paths() + [library_path()]:
+    paths = _user_template_paths() + [library_path()]
+    if project_library_path():
+        paths.append(project_library_path())
+    for path in paths:
         if not os.path.exists(path):
             continue
         try:

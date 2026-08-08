@@ -11,12 +11,11 @@ import os
 import time
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QKeySequence, QIcon
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QMainWindow, QDockWidget, QTabWidget, QToolBar, QComboBox, QLineEdit,
     QListWidget, QListWidgetItem, QMessageBox, QFileDialog, QInputDialog,
-    QLabel, QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QListView,
-    QApplication,
+    QLabel, QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QApplication,
 )
 
 from .. import APP_NAME, FILE_EXT
@@ -72,7 +71,6 @@ class MainWindow(QMainWindow):
         self._rebuild_tree_list()
         self.refresh(full=True)
         # crash-safety autosave every 3 minutes while dirty
-        from PySide6.QtCore import QTimer
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(180_000)
         self._autosave_timer.timeout.connect(self._autosave)
@@ -82,10 +80,48 @@ class MainWindow(QMainWindow):
             self.settings._qs.setValue("seen_quickstart", True)
             QTimer.singleShot(
                 700, lambda: self._show_quickstart(modal=False))
+        # unsaved-work crash recovery
+        QTimer.singleShot(900, self._offer_unsaved_recovery)
+
+    def _offer_unsaved_recovery(self):
+        from ..logging_setup import app_data_dir
+        path = os.path.join(app_data_dir(), "unsaved.ptproj.autosave")
+        if not os.path.exists(path):
+            return
+        if QMessageBox.question(
+                self, "Recover unsaved work",
+                "PowerTree found an autosaved copy of unsaved work from a "
+                "previous session. Load it?") == \
+                QMessageBox.StandardButton.Yes:
+            try:
+                import json
+                with open(path, "r", encoding="utf-8") as fh:
+                    self.project = serialization.project_from_dict(
+                        json.load(fh))
+            except Exception as exc:
+                QMessageBox.warning(self, "Recover",
+                                    f"Recovery failed: {exc}")
+                return
+            self.current_tree = self.project.trees[0] \
+                if self.project.trees else None
+            self.selected_element_id = ""
+            self.notes.set_project(self.project)
+            self._rebuild_state_combo()
+            self._rebuild_tree_list()
+            self.refresh(full=True)
+            self.canvas.fit()
+            self._reset_undo()
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
     def _autosave_path(self) -> str | None:
-        return f"{self.project.file_path}.autosave" \
-            if self.project.file_path else None
+        if self.project.file_path:
+            return f"{self.project.file_path}.autosave"
+        # never-saved projects still get crash protection
+        from ..logging_setup import app_data_dir
+        return os.path.join(app_data_dir(), "unsaved.ptproj.autosave")
 
     def _autosave(self):
         path = self._autosave_path()
@@ -103,14 +139,20 @@ class MainWindow(QMainWindow):
     def _apply_settings(self, initial: bool = False):
         s = self.settings
         from ..model import calc
+        from .theme import apply_theme
         calc.SI_DIGITS = max(3, min(6, int(s.get("si_digits"))))
-        Theme.set_style(s.get("canvas_style"))
+        style = s.get("canvas_style")
+        Theme.set_style(style)
+        apply_theme(QApplication.instance(),
+                    "light" if style == "print" else "dark")
         self.canvas.setBackgroundBrush(Theme.bg)
         self.canvas.detail_default = s.get("detail_default")
         self.canvas.heat_mode = s.get("heat_mode")
         self.canvas.legend_visible = s.get("legend")
+        self.canvas.minimap_visible = s.get("minimap")
+        self.canvas.grid_threshold = int(s.get("grid_threshold"))
         self.heat_action.setChecked(s.get("heat_mode"))
-        self.print_action.setChecked(s.get("canvas_style") == "print")
+        self.print_action.setChecked(style == "print")
         self.legend_action.setChecked(s.get("legend"))
         if not initial:
             self.refresh(full=True)
@@ -126,6 +168,7 @@ class MainWindow(QMainWindow):
         self.canvas.contextRequested.connect(self._canvas_context_menu)
         self.list_view = TreeListView()
         self.list_view.elementSelected.connect(self._on_list_select)
+        self.list_view.reparentRequested.connect(self._on_reparent)
         self.tabs.addTab(self.canvas, "Flowchart")
         self.tabs.addTab(self.list_view, "List view")
         self.setCentralWidget(self.tabs)
@@ -177,6 +220,12 @@ class MainWindow(QMainWindow):
         self.tabifyDockWidget(self.props_dock, self.notes_dock)
         self.props_dock.raise_()
 
+        # bottom: message log (timestamped, persistent for the session)
+        self.msg_log = QListWidget()
+        self.msg_log_dock = QDockWidget("Message log", self)
+        self.msg_log_dock.setWidget(self.msg_log)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.msg_log_dock)
+
         # bottom: findings
         self.findings = QListWidget()
         self.findings.itemClicked.connect(self._on_finding_click)
@@ -186,6 +235,8 @@ class MainWindow(QMainWindow):
         self.findings_dock = QDockWidget("Findings — margin analysis", self)
         self.findings_dock.setWidget(self.findings)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.findings_dock)
+        self.tabifyDockWidget(self.msg_log_dock, self.findings_dock)
+        self.findings_dock.raise_()
 
         self.resizeDocks([self.explorer_dock], [230], Qt.Horizontal)
         self.resizeDocks([self.props_dock], [330], Qt.Horizontal)
@@ -284,6 +335,7 @@ class MainWindow(QMainWindow):
         self.search_box.setFixedWidth(280)
         self.search_box.setClearButtonEnabled(True)
         self.search_box.textChanged.connect(self._on_search)
+        self.search_box.returnPressed.connect(self._jump_first_match)
         tb.addWidget(self.search_box)
         focus = QAction(self)
         focus.setShortcut("Ctrl+F")
@@ -348,8 +400,11 @@ class MainWindow(QMainWindow):
             "Ctrl+Shift+T")
         add(m_edit, "Du&plicate element (with subtree)",
             self._duplicate_element, "Ctrl+D")
+        add(m_edit, "Copy element subtree", self._copy_subtree, "Ctrl+Alt+C")
+        add(m_edit, "Paste subtree under selection", self._paste_subtree,
+            "Ctrl+Alt+V")
         m_edit.addSeparator()
-        add(m_edit, "&Delete selected element", self._delete_element)
+        add(m_edit, "&Delete selected element(s)", self._delete_element)
 
         m_project = self.menuBar().addMenu("&Project")
         add(m_project, "Add device from &template…", self._add_from_template,
@@ -366,6 +421,8 @@ class MainWindow(QMainWindow):
             self._materialize_state)
 
         m_view = self.menuBar().addMenu("&View")
+        add(m_view, "&Command palette…", self._open_palette, "Ctrl+K")
+        m_view.addSeparator()
         m_view.addAction(self.legend_action)
         m_view.addAction(self.heat_action)
         m_view.addAction(self.print_action)
@@ -376,7 +433,7 @@ class MainWindow(QMainWindow):
             lambda: self._set_all_blocks_collapsed(False))
         m_view.addSeparator()
         for dock in (self.explorer_dock, self.props_dock, self.notes_dock,
-                     self.findings_dock):
+                     self.findings_dock, self.msg_log_dock):
             m_view.addAction(dock.toggleViewAction())
         m_view.addSeparator()
         add(m_view, "&Settings…", self._open_settings, "Ctrl+,")
@@ -503,6 +560,26 @@ class MainWindow(QMainWindow):
             f"{tree.name}{state} — source power: {fmt_si(mn.p_out, 'W')} min / "
             f"{fmt_si(typ.p_out, 'W')} typ / {fmt_si(mx.p_out, 'W')} max"
             f"{eff} · {len(tree.elements)} elements · {health}")
+
+    def _log_status(self, text: str, msecs: int = 6000):
+        """Status-bar message that also lands in the persistent message log."""
+        self.statusBar().showMessage(text, msecs)
+        stamp = time.strftime("%H:%M:%S")
+        self.msg_log.addItem(f"[{stamp}]  {text}")
+        self.msg_log.scrollToBottom()
+
+    def _run_export(self, title: str, fn):
+        """Run an export in a worker thread (GUI stays responsive)."""
+        from .workers import run_async
+
+        def done(result, exc):
+            if exc is not None:
+                QMessageBox.critical(self, title,
+                                     f"Export failed:\n{exc}")
+                self._log_status(f"{title} FAILED: {exc}")
+            else:
+                self._log_status(f"{title}: {result}")
+        run_async(self, f"{title}…", fn, done)
 
     def _mark_dirty(self):
         self.dirty = True
@@ -697,20 +774,53 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Added '{el.name}'", 4000)
 
     def _delete_element(self):
-        el = self._selected_element()
+        """Delete every selected element (canvas rubber-band or list
+        multi-select), each with its subtree."""
         tree = self.current_tree
-        if el is None or tree is None:
+        if tree is None:
             return
-        n = len(tree.descendants_of(el.id))
-        msg = f"Delete '{el.name}'" + (f" and its {n} descendants?" if n
-                                       else "?")
-        if QMessageBox.question(self, "Delete element", msg) \
+        from .canvas import NodeItem
+        targets: dict = {}
+        for item in self.canvas.scene_.selectedItems():
+            if isinstance(item, NodeItem):
+                targets[item.el.id] = item.el
+        for lv_item in self.list_view.selectedItems():
+            el_id = lv_item.data(0, Qt.UserRole)
+            if el_id in tree.elements:
+                targets[el_id] = tree.elements[el_id]
+        if not targets and self.selected_element_id in tree.elements:
+            targets[self.selected_element_id] = \
+                tree.elements[self.selected_element_id]
+        if not targets:
+            return
+        # drop targets that are inside another target's subtree
+        roots = []
+        for el in targets.values():
+            parent = tree.parent_of(el)
+            nested = False
+            while parent is not None:
+                if parent.id in targets:
+                    nested = True
+                    break
+                parent = tree.parent_of(parent)
+            if not nested:
+                roots.append(el)
+        total = sum(1 + len(tree.descendants_of(e.id)) for e in roots)
+        if len(roots) == 1 and total == 1:
+            msg = f"Delete '{roots[0].name}'?"
+        elif len(roots) == 1:
+            msg = f"Delete '{roots[0].name}' and its {total - 1} descendants?"
+        else:
+            msg = f"Delete {len(roots)} elements ({total} incl. descendants)?"
+        if QMessageBox.question(self, "Delete element(s)", msg) \
                 != QMessageBox.StandardButton.Yes:
             return
-        tree.remove_element(el.id)
+        for el in roots:
+            tree.remove_element(el.id)
         self.selected_element_id = ""
         self._rebuild_tree_list()
         self.refresh(full=True)
+        self._log_status(f"Deleted {total} element(s)")
 
     def _add_block(self):
         tree = self.current_tree
@@ -812,10 +922,16 @@ class MainWindow(QMainWindow):
         new = {0: "TD", 1: "LR", 2: "custom"}[idx]
         if new == "custom" and tree.orientation != "custom":
             # seed custom positions from the current automatic layout
-            lay = L.compute_layout(tree, tree.orientation)
-            for el_id, (cx, cy) in lay.positions.items():
-                tree.elements[el_id].x = cx
-                tree.elements[el_id].y = cy
+            lay = L.compute_layout(tree, tree.orientation,
+                                   grid_threshold=self.canvas.grid_threshold)
+            for rid, (cx, cy) in lay.positions.items():
+                if rid in tree.elements:
+                    tree.elements[rid].x = cx
+                    tree.elements[rid].y = cy
+                elif rid in lay.block_nodes:
+                    block = tree.blocks.get(lay.block_nodes[rid].block_id)
+                    if block is not None:
+                        block.x, block.y = cx, cy
         tree.orientation = new
         self.refresh(full=True)
         self.canvas.fit()
@@ -831,11 +947,18 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def _on_print_style(self, checked: bool):
+        from .theme import apply_theme
         style = "print" if checked else "dark"
         Theme.set_style(style)
         self.settings.set("canvas_style", style)
+        apply_theme(QApplication.instance(),
+                    "light" if checked else "dark")
         self.canvas.setBackgroundBrush(Theme.bg)
         self.refresh(full=True)
+
+    def _open_palette(self):
+        from .palette import CommandPalette
+        CommandPalette(self).exec()
 
     def _open_settings(self):
         from .settings_dialog import SettingsDialog
@@ -858,9 +981,32 @@ class MainWindow(QMainWindow):
         self.props.set_target(self.project, tree, el)
         self.canvas.select_element(element_id)
 
+    def _reveal_element(self, el_id: str) -> bool:
+        """Expand every collapsed ancestor branch and collapsed block hiding
+        the element, so jump-to-element never dead-ends."""
+        tree = self.current_tree
+        if not tree or el_id not in tree.elements:
+            return False
+        changed = False
+        el = tree.elements[el_id]
+        parent = tree.parent_of(el)
+        while parent is not None:
+            if parent.collapsed:
+                parent.collapsed = False
+                changed = True
+            parent = tree.parent_of(parent)
+        if el.block_id and el.block_id in tree.blocks and \
+                tree.blocks[el.block_id].collapsed:
+            tree.blocks[el.block_id].collapsed = False
+            changed = True
+        if changed:
+            self.refresh(full=True)
+        return True
+
     def _on_finding_click(self, item):
         el_id = item.data(Qt.UserRole)
         if el_id and self.current_tree and el_id in self.current_tree.elements:
+            self._reveal_element(el_id)
             self.selected_element_id = el_id
             self.canvas.select_element(el_id)
             self.list_view.select_element(el_id)
@@ -998,6 +1144,22 @@ class MainWindow(QMainWindow):
         self.canvas.fit()
         self.statusBar().showMessage(
             f"Created '{baked.name}' with the state baked in", 6000)
+
+    def _jump_first_match(self):
+        """Enter in the search box: reveal + select the first match (even if
+        it is hidden inside a collapsed block or branch)."""
+        text = self.search_box.text().strip().lower()
+        tree = self.current_tree
+        if not text or not tree:
+            return
+        for el in tree.elements.values():
+            if any(text in str(getattr(el, f, "")).lower()
+                   for f in SEARCH_FIELDS):
+                self._reveal_element(el.id)
+                self.selected_element_id = el.id
+                self.canvas.select_element(el.id)
+                self.list_view.select_element(el.id)
+                return
 
     # ============================================================== notes
     def _edit_docs_for(self, element_id: str):
@@ -1172,6 +1334,66 @@ class MainWindow(QMainWindow):
         if menu is not None:
             menu.exec(global_pos)
 
+    def _on_reparent(self, el_id: str, new_parent_id: str):
+        tree = self.current_tree
+        if tree is None:
+            return
+        try:
+            tree.move_element(el_id, new_parent_id)
+        except (ValueError, KeyError) as exc:
+            self._log_status(f"Move rejected: {exc}", 5000)
+            self.refresh(full=True)     # restore the visual order
+            return
+        el = tree.elements[el_id]
+        parent = tree.elements[new_parent_id]
+        self.selected_element_id = el_id
+        self.refresh(full=True)
+        self._log_status(f"Moved '{el.name}' under '{parent.name}'")
+
+    def _copy_subtree(self):
+        el = self._selected_element()
+        tree = self.current_tree
+        if el is None or tree is None:
+            self._log_status("Copy: select an element first", 3000)
+            return
+        import json
+        payload = {serialization.SUBTREE_KEY:
+                   serialization.subtree_to_dicts(tree, el.id)}
+        QApplication.clipboard().setText(json.dumps(payload))
+        n = len(payload[serialization.SUBTREE_KEY])
+        self._log_status(f"Copied '{el.name}' ({n} element(s)) — paste with "
+                         "Ctrl+Alt+V, even into another PowerTree window")
+
+    def _paste_subtree(self):
+        tree = self.current_tree
+        if tree is None:
+            return
+        import json
+        try:
+            payload = json.loads(QApplication.clipboard().text())
+            dicts = payload[serialization.SUBTREE_KEY]
+        except (ValueError, KeyError, TypeError):
+            self._log_status("Paste: clipboard has no PowerTree subtree",
+                             4000)
+            return
+        parent = self._selected_element()
+        if parent is not None and not tree.can_parent(parent):
+            parent = tree.parent_of(parent)
+        if parent is None:
+            parent = tree.source
+        if parent is None:
+            self._log_status("Paste: the tree needs a source first", 4000)
+            return
+        try:
+            root = serialization.dicts_to_subtree(tree, dicts, parent.id)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Paste subtree", str(exc))
+            return
+        self.selected_element_id = root.id
+        self.refresh(full=True)
+        self.canvas.select_element(root.id)
+        self._log_status(f"Pasted '{root.name}' under '{parent.name}'")
+
     def _duplicate_element(self):
         el = self._selected_element()
         tree = self.current_tree
@@ -1204,6 +1426,29 @@ class MainWindow(QMainWindow):
         desc = QPlainTextEdit(self.project.description)
         desc.setMaximumHeight(90)
         form.addRow("Description", desc)
+        logo_state = {"b64": self.project.logo_b64}
+        from PySide6.QtWidgets import QPushButton, QHBoxLayout
+        logo_row = QHBoxLayout()
+        logo_btn = QPushButton(
+            "Change…" if logo_state["b64"] else "Choose logo…")
+
+        def pick_logo():
+            p, _ = QFileDialog.getOpenFileName(
+                dlg, "Report logo", "", "Images (*.png *.jpg *.jpeg)")
+            if p:
+                import base64
+                with open(p, "rb") as fh:
+                    logo_state["b64"] = base64.b64encode(
+                        fh.read()).decode("ascii")
+                logo_btn.setText(os.path.basename(p))
+        logo_btn.clicked.connect(pick_logo)
+        logo_row.addWidget(logo_btn, 1)
+        clear_btn = QPushButton("Clear")
+        clear_btn.clicked.connect(
+            lambda: (logo_state.update(b64=""),
+                     logo_btn.setText("Choose logo…")))
+        logo_row.addWidget(clear_btn)
+        form.addRow("Report logo", logo_row)
         buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
@@ -1213,6 +1458,7 @@ class MainWindow(QMainWindow):
             self.project.name = name.text().strip() or self.project.name
             self.project.author = author.text().strip()
             self.project.description = desc.toPlainText()
+            self.project.logo_b64 = logo_state["b64"]
             self._mark_dirty()
             self._update_title()
 
@@ -1274,6 +1520,7 @@ class MainWindow(QMainWindow):
             self._rebuild_tree_list()
             self.selected_element_id = el.id
             self.refresh(full=True)
+            self._reveal_element(el.id)
             self.canvas.select_element(el.id)
 
         table.itemDoubleClicked.connect(jump)
@@ -1315,6 +1562,16 @@ class MainWindow(QMainWindow):
                 lambda _=False, p=path: self._open_project_path(p))
             self.recent_menu.addAction(a)
 
+    def _set_project_library_env(self, project_path: str | None):
+        """Expose the project-adjacent library to the template system."""
+        from ..library import PROJECT_LIB_ENV, PROJECT_LIB_NAME
+        if project_path:
+            os.environ[PROJECT_LIB_ENV] = os.path.join(
+                os.path.dirname(os.path.abspath(project_path)),
+                PROJECT_LIB_NAME)
+        else:
+            os.environ.pop(PROJECT_LIB_ENV, None)
+
     def _open_project_path(self, path: str):
         if not self._confirm_discard():
             return
@@ -1337,6 +1594,7 @@ class MainWindow(QMainWindow):
                                  f"Could not open project:\n{exc}")
             return
         self.settings.push_recent(path)
+        self._set_project_library_env(path)
         self.current_tree = self.project.trees[0] if self.project.trees \
             else None
         self.selected_element_id = ""
@@ -1454,6 +1712,7 @@ class MainWindow(QMainWindow):
                                  f"Could not save project:\n{exc}")
             return False
         self.settings.push_recent(path)
+        self._set_project_library_env(path)
         autosave = self._autosave_path()
         if autosave and os.path.exists(autosave):
             try:
@@ -1472,16 +1731,19 @@ class MainWindow(QMainWindow):
             "PDF (*.pdf)")
         if not path:
             return
-        try:
-            export_pdf_report(
-                self.project, path,
-                include_notes=self.settings.get("pdf_include_notes"),
-                include_images=self.settings.get("pdf_include_images"),
-                image_style=Theme.style)
-        except Exception as exc:
-            QMessageBox.critical(self, "PDF export", f"Export failed:\n{exc}")
+        opts = self._ask_report_options()
+        if opts is None:
             return
-        self.statusBar().showMessage(f"PDF report written: {path}", 6000)
+        project, include_waived = opts
+        notes = self.settings.get("pdf_include_notes")
+        images = self.settings.get("pdf_include_images")
+        style = Theme.style
+        self._run_export(
+            "PDF report",
+            lambda: export_pdf_report(project, path, include_notes=notes,
+                                      include_images=images,
+                                      image_style=style,
+                                      include_waived=include_waived))
 
     def _export_excel(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -1489,17 +1751,14 @@ class MainWindow(QMainWindow):
             "Excel macro-enabled (*.xlsm);;Excel workbook (*.xlsx)")
         if not path:
             return
-        try:
+        project = self.project
+
+        def do_excel():
             if path.lower().endswith(".xlsx"):
-                written, msg = export_excel_xlsx(self.project, path), ""
-            else:
-                written, msg = export_excel_xlsm(self.project, path)
-        except Exception as exc:
-            QMessageBox.critical(self, "Excel export", f"Export failed:\n{exc}")
-            return
-        if msg and "unavailable" in msg:
-            QMessageBox.information(self, "Excel export", msg)
-        self.statusBar().showMessage(f"Excel report written: {written}", 6000)
+                return export_excel_xlsx(project, path)
+            written, msg = export_excel_xlsm(project, path)
+            return f"{written}  ({msg})" if msg else written
+        self._run_export("Excel report", do_excel)
 
     def _export_png(self):
         tree = self.current_tree
@@ -1509,15 +1768,60 @@ class MainWindow(QMainWindow):
             self, "Export flowchart image", f"{tree.name}.png", "PNG (*.png)")
         if not path:
             return
-        try:
-            export_tree_png(tree, path, scale=self.settings.get("png_scale"),
-                            style=Theme.style,
-                            detail_default=self.settings.get("detail_default"),
-                            heat=self.canvas.heat_mode)
-        except Exception as exc:
-            QMessageBox.critical(self, "Image export", f"Export failed:\n{exc}")
-            return
-        self.statusBar().showMessage(f"HD flowchart image written: {path}", 6000)
+        scale = self.settings.get("png_scale")
+        style = Theme.style
+        detail = self.settings.get("detail_default")
+        heat = self.canvas.heat_mode
+        grid = self.canvas.grid_threshold
+        self._run_export(
+            "Flowchart image",
+            lambda: export_tree_png(tree, path, scale=scale, style=style,
+                                    detail_default=detail, heat=heat,
+                                    grid_threshold=grid))
+
+    def _ask_report_options(self):
+        """Pre-export dialog: pick trees + waived-finding handling.
+        Returns (project-for-export, include_waived) or None on cancel."""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QCheckBox,
+                                       QDialogButtonBox, QLabel)
+        if len(self.project.trees) <= 1:
+            return self.project, True
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Report contents")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel("Include power trees:"))
+        boxes = []
+        for tree in self.project.trees:
+            cb = QCheckBox(tree.name)
+            cb.setChecked(True)
+            boxes.append((cb, tree))
+            lay.addWidget(cb)
+        waived_cb = QCheckBox("Show waived findings (greyed, with "
+                              "justification)")
+        waived_cb.setChecked(True)
+        lay.addWidget(waived_cb)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        if not dlg.exec():
+            return None
+        chosen = [t for cb, t in boxes if cb.isChecked()]
+        if not chosen:
+            return None
+        if len(chosen) == len(self.project.trees):
+            return self.project, waived_cb.isChecked()
+        subset = Project(self.project.name)
+        subset.description = self.project.description
+        subset.author = self.project.author
+        subset.scenarios = self.project.scenarios
+        subset.derating_pct = self.project.derating_pct
+        subset.waivers = self.project.waivers
+        subset.notes = self.project.notes
+        subset.logo_b64 = getattr(self.project, "logo_b64", "")
+        subset.trees = chosen
+        return subset, waived_cb.isChecked()
 
     def _export_html(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -1526,14 +1830,10 @@ class MainWindow(QMainWindow):
         if not path:
             return
         from ..export.html_report import export_html_report
-        try:
-            export_html_report(self.project, path, image_style=Theme.style)
-        except Exception as exc:
-            QMessageBox.critical(self, "HTML export", f"Export failed:\n{exc}")
-            return
-        self.statusBar().showMessage(
-            f"Shareable HTML report written: {path} — one file, opens in any "
-            "browser", 6000)
+        project, style = self.project, Theme.style
+        self._run_export(
+            "HTML report",
+            lambda: export_html_report(project, path, image_style=style))
 
     def _export_bundle(self):
         out_dir = QFileDialog.getExistingDirectory(
@@ -1541,15 +1841,20 @@ class MainWindow(QMainWindow):
         if not out_dir:
             return
         from ..api import export_bundle
-        try:
-            written = export_bundle(self.project, out_dir, style=Theme.style)
-        except Exception as exc:
-            QMessageBox.critical(self, "Bundle export",
-                                 f"Export failed:\n{exc}")
-            return
-        self.statusBar().showMessage(
-            f"Bundle written: {len(written)} files in {out_dir}", 8000)
-        os.startfile(out_dir)
+        from .workers import run_async
+        project, style = self.project, Theme.style
+
+        def done(result, exc):
+            if exc is not None:
+                QMessageBox.critical(self, "Bundle export",
+                                     f"Export failed:\n{exc}")
+                self._log_status(f"Bundle export FAILED: {exc}")
+            else:
+                self._log_status(
+                    f"Bundle written: {len(result)} files in {out_dir}")
+                os.startfile(out_dir)
+        run_async(self, "Exporting everything…",
+                  lambda: export_bundle(project, out_dir, style=style), done)
 
     def _export_csv(self):
         path, _ = QFileDialog.getSaveFileName(

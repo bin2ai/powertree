@@ -1,6 +1,5 @@
 """Tests for device templates, the global net registry and the Zynq demo."""
 
-import math
 import os
 import sys
 import tempfile

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox, QComboBox,
 )
 
-from ..model.elements import Project, Element, Note
+from ..model.elements import Project, Element
 from ..export.md_render import md_to_html_body
 from .notes import _PREVIEW_CSS
 

@@ -19,8 +19,8 @@ loads.
 | Type | Electrical model | Key fields |
 |---|---|---|
 | **Source** | V min/typ/max; optional current *or* power limit | limit type + value |
-| **Converter** | Regulates Vout (min/typ/max corners); input power = output/η + Iq·Vin | topology, efficiency %, quiescent I, optional output limit; its output rail is the pass-through terminal for children |
-| **Load** | Current-type (I fixed) or power-type (P fixed, I = P/V) | typ + optional peak value, allowed Vin window |
+| **Converter** | Regulates Vout (min/typ/max corners); input power = output/η + Iq·Vin; **unregulated** topology tracks Vin (Vout = ratio × Vin) | topology, efficiency % or **η-vs-load curve**, ratio, **sequence step** (power-up order checks), quiescent I, optional output limit |
+| **Load** | Current-type (I fixed), power-type (P fixed, I = P/V) or **resistive** (I = V/R) | typ + optional peak value or R, **duty cycle** (min/typ corners budget the duty-weighted average; max keeps full peak), allowed Vin window |
 | **Series element** | DC resistance in the path (V drop = I·R, loss = I²R) | subtype (resistor / ferrite bead / inductor / fuse / cable / connector / switch), DCR, informational inductance, free-text rating, optional Vin window + current + dissipation ratings |
 
 All elements share metadata: name, **signal (net) name**, ref des, part
@@ -76,7 +76,10 @@ The `signal name` of a source / converter output / series output **defines a
 net for the whole project**. Loads consume the nearest named ancestor rail.
 `Ctrl+G` opens the registry; defining the same net at two different voltages,
 or driving it from two regulators in one tree, is flagged as a conflict (also
-in `validate` and the PDF).
+in `validate` and the PDF). *Scope:* the registry checks names and
+definitions — trees still solve independently (cross-tree merged solving is
+a roadmap item), so shared-net loads in another tree don't yet burden this
+tree's source.
 
 ### The solver
 Runs automatically on every edit, bottom-up, in three corners:

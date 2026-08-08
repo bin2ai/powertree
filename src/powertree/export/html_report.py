@@ -50,7 +50,11 @@ def export_html_report(project: Project, path: str,
                        image_style: str | None = None) -> str:
     from .. import __version__
     author = f" · {_e(project.author)}" if project.author else ""
-    parts = [f"<h1>{_e(project.name)} — Power Tree Report</h1>",
+    parts = []
+    if getattr(project, "logo_b64", ""):
+        parts.append(f"<img alt='logo' style='max-height:64px' "
+                     f"src='data:image;base64,{project.logo_b64}'>")
+    parts += [f"<h1>{_e(project.name)} — Power Tree Report</h1>",
              f"<p class='meta'>Generated {date.today().isoformat()} by "
              f"PowerTree v{__version__}{author} · fully self-contained "
              f"file</p>"]

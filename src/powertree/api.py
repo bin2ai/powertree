@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 
 from .model.elements import Project, PowerTree, ElementKind
-from .model.calc import solve_tree, fmt_si
+from .model.calc import solve_tree
 from .model import serialization
 from .model.nets import collect_nets
 from .sampledata import build_sample_project
@@ -183,10 +183,12 @@ def element_dict(tree: PowerTree, el, results=None) -> dict:
                      if el.block_id and el.block_id in tree.blocks else None),
            "description": el.description}
     for attr in ("v_min", "v_typ", "v_max", "limit_type", "limit_value",
-                 "topology", "efficiency_pct", "vout_min", "vout_typ",
-                 "vout_max", "quiescent_ma", "load_type", "value_typ",
-                 "value_max", "v_in_min", "v_in_max", "series_type",
-                 "resistance_ohm", "inductance_uh", "rating"):
+                 "topology", "ratio", "seq_order", "efficiency_pct",
+                 "eff_points", "vout_min", "vout_typ", "vout_max",
+                 "quiescent_ma", "load_type", "value_typ", "value_max",
+                 "duty_cycle_pct", "v_in_min", "v_in_max", "series_type",
+                 "resistance_ohm", "inductance_uh", "rating", "i_max",
+                 "p_max"):
         if hasattr(el, attr):
             out[attr] = getattr(el, attr)
     if results is not None:

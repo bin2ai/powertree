@@ -78,7 +78,7 @@ def _hierarchy_rows(tree: PowerTree, results: TreeResults, styles):
 def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
                     include_image: bool = True, scenarios: list | None = None,
                     image_style: str | None = None,
-                    project_for_waivers=None):
+                    project_for_waivers=None, include_waived: bool = True):
     flow = [Paragraph(_esc(tree.name), styles["PTH1"])]
     if tree.description:
         flow.append(Paragraph(_esc(tree.description), styles["PTBody"]))
@@ -231,6 +231,8 @@ def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
         active, waived = ((results.warnings, [])
                           if project_for_waivers is None else
                           split_waived(project_for_waivers, results.warnings))
+        if not include_waived:
+            waived = []
         wrows = [["Severity", "Corner", "Message"]]
         row_fills = []
         for w in active:
@@ -261,17 +263,30 @@ def _tree_flowables(tree: PowerTree, results: TreeResults, styles,
 
 def export_pdf_report(project: Project, path: str, include_notes: bool = True,
                       include_images: bool = True,
-                      image_style: str | None = None) -> str:
+                      image_style: str | None = None,
+                      include_waived: bool = True) -> str:
     styles = build_styles()
     doc = SimpleDocTemplate(
         path, pagesize=A4, topMargin=14 * mm, bottomMargin=14 * mm,
         leftMargin=16 * mm, rightMargin=16 * mm,
         title=f"{project.name} — Power Tree Report", author="PowerTree")
 
-    flow = [Spacer(1, 40 * mm),
-            Paragraph(_esc(project.name), styles["Title"]),
-            Paragraph("Power Tree Analysis Report", styles["PTH2"]),
-            Spacer(1, 6)]
+    flow = [Spacer(1, 30 * mm)]
+    if getattr(project, "logo_b64", ""):
+        try:
+            import base64
+            logo = RLImage(io.BytesIO(base64.b64decode(project.logo_b64)))
+            ratio = min((60 * mm) / logo.drawWidth,
+                        (24 * mm) / logo.drawHeight, 1.0)
+            logo.drawWidth *= ratio
+            logo.drawHeight *= ratio
+            logo.hAlign = "CENTER"
+            flow += [logo, Spacer(1, 6)]
+        except Exception:
+            pass
+    flow += [Paragraph(_esc(project.name), styles["Title"]),
+             Paragraph("Power Tree Analysis Report", styles["PTH2"]),
+             Spacer(1, 6)]
     if project.description:
         flow.append(Paragraph(_esc(project.description), styles["PTBody"]))
     from .. import __version__
@@ -427,7 +442,8 @@ def export_pdf_report(project: Project, path: str, include_notes: bool = True,
                                 include_image=include_images,
                                 scenarios=project.scenarios,
                                 image_style=image_style,
-                                project_for_waivers=project)
+                                project_for_waivers=project,
+                                include_waived=include_waived)
 
     if include_notes and project.notes:
         flow.append(PageBreak())

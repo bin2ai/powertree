@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "powertree"
-version = "0.7.0"
+dynamic = ["version"]
 description = "Electronic circuit power tree analysis: bottom-up power budgeting with min/typ/max corners, margin analysis, flowchart GUI, and PDF/Excel/HTML/CSV reports."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -55,5 +55,33 @@ powertree-gui = "powertree.ui.app_entry:gui_main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.dynamic]
+version = { attr = "powertree.__version__" }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+ignore = [
+    "E402",   # tests insert sys.path before imports by design
+    "E741",   # short math names in the solver
+    "B007",   # unused loop variables in unpacking are self-documenting
+    "B008",
+    "B905",   # zip() strict= requires 3.10+ semantics we don't rely on
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/powertree/model/__init__.py" = ["F401"]   # intentional re-exports
+# nested helpers invoked synchronously inside their loop (safe captures)
+"src/powertree/api.py" = ["B023"]
+"src/powertree/ui/layout.py" = ["B023"]
+
+[tool.coverage.run]
+source = ["src/powertree"]
+omit = ["src/powertree/ui/*"]   # GUI covered by the scripted smoke suite

@@ -4,7 +4,7 @@ its nominal voltage, how many loads it feeds, and any conflicts."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QBrush, QFont
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QLabel,
     QDialogButtonBox,
@@ -25,7 +25,11 @@ class NetsDialog(QDialog):
         info = QLabel(
             "Net (signal) names are global to the project: the same name in "
             "any tree is the same electrical node. Sources, converter outputs "
-            "and series-element outputs define nets; loads consume them.")
+            "and series-element outputs define nets; loads consume them. "
+            "Scope note: this registry checks NAMES and definitions — trees "
+            "are still solved independently (cross-tree merged solving is on "
+            "the roadmap), so a shared net's loads in another tree do not "
+            "yet burden this tree's source.")
         info.setWordWrap(True)
         info.setStyleSheet("color: #98a3b8;")
         lay.addWidget(info)

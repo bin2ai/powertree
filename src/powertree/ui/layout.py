@@ -35,8 +35,12 @@ ATTACH_GAP = 18.0  # gap between a converter and its tucked companion loads
 CLUSTER_DIST = 90.0  # members closer than this merge into one block cluster
 
 BLOCK_PREFIX = "blk:"
+GRID_PREFIX = "grid:"
 BLOCK_NODE_H = 122.0
 PIN_STUB = 10.0    # visual pin stub length (edges land on the pin)
+GRID_GAP = 14.0    # spacing between cards inside a rail grid
+GRID_PAD = 12.0    # grid container padding
+GRID_HEADER = 20.0  # rail label strip at the top of a grid container
 
 # card heights per display-detail level
 _HEIGHTS = {
@@ -118,6 +122,17 @@ def _apply_pin_order(block, pins: list, direction: str) -> list:
 
 
 @dataclass
+class GridGroupInfo:
+    """Many leaf loads on one rail wrapped into a compact grid (kills the
+    endless-ribbon problem on wide fan-outs)."""
+    parent_rid: str
+    member_ids: list = field(default_factory=list)
+    net: str = ""
+    cols: int = 1
+    rows: int = 1
+
+
+@dataclass
 class LayoutResult:
     positions: dict = field(default_factory=dict)   # rid -> (cx, cy)
     sizes: dict = field(default_factory=dict)       # rid -> (w, h)
@@ -126,6 +141,7 @@ class LayoutResult:
     visible: set = field(default_factory=set)       # visible ELEMENT ids (rendered as cards)
     render_nodes: set = field(default_factory=set)  # all render node ids
     block_nodes: dict = field(default_factory=dict)  # rid -> BlockNodeInfo
+    grid_groups: dict = field(default_factory=dict)  # rid -> GridGroupInfo
     hidden_counts: dict = field(default_factory=dict)  # rid -> hidden descendants
     bounds: tuple = (0.0, 0.0, 0.0, 0.0)            # x, y, w, h
     details: dict = field(default_factory=dict)     # rid -> resolved detail
@@ -162,7 +178,8 @@ def _net_of(tree: PowerTree, el: Element) -> str:
 
 def compute_layout(tree: PowerTree, orientation: str = "TD",
                    respect_custom: bool = True,
-                   detail_default: str = "standard") -> LayoutResult:
+                   detail_default: str = "standard",
+                   grid_threshold: int = 7) -> LayoutResult:
     """orientation: 'TD' (top-down), 'LR' (left-right) or 'custom'."""
     from ..settings import resolve_detail
     out = LayoutResult()
@@ -282,19 +299,76 @@ def compute_layout(tree: PowerTree, orientation: str = "TD",
             if el.collapsed:
                 out.hidden_counts[rid] = len(tree.descendants_of(rid))
 
+    # ---- 5b. companion tucking must be known before grids -----------------
+    _early_attached: set = set()
+    for pr, kids in child_map.items():
+        for rid in kids:
+            if rid.startswith(BLOCK_PREFIX) or rid.startswith(GRID_PREFIX):
+                continue
+            el = tree.elements[rid]
+            if el.kind == ElementKind.CONVERTER and el.block_id and \
+                    el.block_id in tree.blocks and \
+                    not tree.blocks[el.block_id].collapsed:
+                for s in kids:
+                    if s != rid and not s.startswith(BLOCK_PREFIX) and \
+                            not s.startswith(GRID_PREFIX) and \
+                            tree.elements[s].kind == ElementKind.LOAD and \
+                            tree.elements[s].block_id == el.block_id:
+                        _early_attached.add(s)
+
+    # ---- 5c. leaf-grid wrapping: many loads on one rail -> compact grid ---
+    import math as _math
+    if grid_threshold and grid_threshold > 0 and orientation != "custom":
+        for pr in list(child_map):
+            kids = child_map[pr]
+            gridable = [c for c in kids
+                        if not c.startswith(BLOCK_PREFIX)
+                        and tree.elements[c].kind == ElementKind.LOAD
+                        and c not in child_map           # leaf loads only
+                        and c not in _early_attached]    # keep Iq companions
+            if len(gridable) < grid_threshold:
+                continue
+            # group by block so cluster outlines stay contiguous in the grid
+            gridable.sort(key=lambda c: (tree.elements[c].block_id or "￿",
+                                         tree.elements[c].name.lower()))
+            grid_rid = GRID_PREFIX + pr
+            cell_w = max(out.sizes[c][0] for c in gridable)
+            cell_h = max(out.sizes[c][1] for c in gridable)
+            n = len(gridable)
+            cols = max(2, int(_math.ceil(_math.sqrt(n * cell_h / cell_w))))
+            cols = min(cols, n)
+            rows = int(_math.ceil(n / cols))
+            gw = cols * cell_w + (cols - 1) * GRID_GAP + 2 * GRID_PAD
+            gh = rows * cell_h + (rows - 1) * GRID_GAP + 2 * GRID_PAD \
+                + GRID_HEADER
+            parent_el = tree.elements.get(pr)
+            net = _net_of(tree, parent_el) if parent_el is not None else ""
+            out.grid_groups[grid_rid] = GridGroupInfo(
+                parent_rid=pr, member_ids=list(gridable), net=net,
+                cols=cols, rows=rows)
+            out.sizes[grid_rid] = (gw, gh)
+            child_map[pr] = [c for c in kids if c not in gridable]
+            child_map[pr].append(grid_rid)
+            parent_of[grid_rid] = pr
+            out.render_nodes.add(grid_rid)
+            for c in gridable:
+                out.render_nodes.discard(c)   # positioned inside the grid
+                parent_of.pop(c, None)
+
     # ---- 6. companion tucking (converter + same-block Iq load) ------------
     attached: dict = {}
     attached_ids: set = set()
     for pr, kids in child_map.items():
         for rid in kids:
-            if rid.startswith(BLOCK_PREFIX):
+            if rid.startswith(BLOCK_PREFIX) or rid.startswith(GRID_PREFIX):
                 continue
             el = tree.elements[rid]
             if el.kind == ElementKind.CONVERTER and el.block_id and \
-                    not tree.blocks.get(el.block_id, None) is None and \
+                    tree.blocks.get(el.block_id, None) is not None and \
                     not tree.blocks[el.block_id].collapsed:
                 mates = [s for s in kids
                          if s != rid and not s.startswith(BLOCK_PREFIX)
+                         and not s.startswith(GRID_PREFIX)
                          and tree.elements[s].kind == ElementKind.LOAD
                          and tree.elements[s].block_id == el.block_id
                          and s not in attached_ids]
@@ -315,8 +389,9 @@ def compute_layout(tree: PowerTree, orientation: str = "TD",
         return [c for c in child_map.get(rid, []) if c not in attached_ids]
 
     def in_block(rid: str) -> bool:
-        return (not rid.startswith(BLOCK_PREFIX)
-                and tree.elements[rid].block_id is not None)
+        if rid.startswith(BLOCK_PREFIX) or rid.startswith(GRID_PREFIX):
+            return False
+        return tree.elements[rid].block_id is not None
 
     def extent(rid: str) -> float:
         if rid in cache:
@@ -371,6 +446,22 @@ def compute_layout(tree: PowerTree, orientation: str = "TD",
 
     place(root_rid, 0, 0.0)
 
+    # position grid members inside their containers (row-major)
+    for grid_rid, ginfo in out.grid_groups.items():
+        gw, gh = out.sizes[grid_rid]
+        gx, gy = out.positions[grid_rid]
+        cell_w = max(out.sizes[c][0] for c in ginfo.member_ids)
+        cell_h = max(out.sizes[c][1] for c in ginfo.member_ids)
+        x0 = gx - gw / 2 + GRID_PAD
+        y0 = gy - gh / 2 + GRID_HEADER + GRID_PAD
+        for i, mid in enumerate(ginfo.member_ids):
+            row, col = divmod(i, ginfo.cols)
+            mw, mh = out.sizes[mid]
+            cx = x0 + col * (cell_w + GRID_GAP) + cell_w / 2
+            cy = y0 + row * (cell_h + GRID_GAP) + cell_h / 2
+            out.positions[mid] = (cx, cy)
+            out.render_nodes.add(mid)     # drawn as normal cards
+
     # ---- 8. custom positions ---------------------------------------------
     if orientation == "custom" and respect_custom:
         for rid in out.render_nodes:
@@ -402,8 +493,14 @@ def _edge_endpoints(tree: PowerTree, out: LayoutResult, pr: str, cr: str,
         info = out.block_nodes[pr]
         # which member feeds cr? cr's tree-parent (or an ancestor) is a member
         member_id = None
-        probe = tree.elements.get(cr) if not cr.startswith(BLOCK_PREFIX) \
-            else None
+        if cr.startswith(GRID_PREFIX):
+            ginfo = out.grid_groups[cr]
+            probe = tree.elements.get(ginfo.member_ids[0]) \
+                if ginfo.member_ids else None
+        elif cr.startswith(BLOCK_PREFIX):
+            probe = None
+        else:
+            probe = tree.elements.get(cr)
         if probe is not None:
             p = tree.parent_of(probe)
             while p is not None:

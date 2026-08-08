@@ -26,6 +26,8 @@ class ElementKind:
 class LoadType:
     CURRENT = "current"
     POWER = "power"
+    RESISTIVE = "resistive"
+    ALL = (CURRENT, POWER, RESISTIVE)
 
 
 class LimitType:
@@ -98,7 +100,10 @@ class Source(Element):
 class Converter(Element):
     kind: str = ElementKind.CONVERTER
     name: str = "Converter"
-    topology: str = "buck"             # buck | boost | buck-boost | ldo | isolated | generic
+    # buck | boost | buck-boost | ldo | isolated | generic | unregulated
+    topology: str = "buck"
+    ratio: float = 1.0                 # unregulated: Vout = ratio x Vin
+    seq_order: int = 0                 # power-up sequence position (0 = n/a)
     efficiency_pct: float = 90.0       # flat efficiency (used when no curve)
     # optional efficiency-vs-load curve: [[i_out_A, eff_pct], ...] from the
     # datasheet plot; linearly interpolated, clamped at the ends.
@@ -139,12 +144,24 @@ class Converter(Element):
 class Load(Element):
     kind: str = ElementKind.LOAD
     name: str = "Load"
-    load_type: str = LoadType.CURRENT   # current | power  (resistive not supported yet)
+    load_type: str = LoadType.CURRENT   # current | power | resistive
     value_typ: float = 0.010            # A or W depending on load_type
     value_max: Optional[float] = None   # optional peak value
+    resistance_ohm: float = 100.0       # used when load_type == resistive
+    # duty cycle: min/typ corners use the duty-weighted AVERAGE draw;
+    # the max corner keeps the full peak (worst case). 100 = always on.
+    duty_cycle_pct: float = 100.0
     # Allowed input-voltage operating window (for margin analysis); optional.
     v_in_min: Optional[float] = None
     v_in_max: Optional[float] = None
+
+    @property
+    def resistance(self) -> float:
+        return clamp(self.resistance_ohm, R_MIN, R_MAX)
+
+    @property
+    def duty(self) -> float:
+        return clamp(self.duty_cycle_pct, 0.0, 100.0) / 100.0
 
 
 class SeriesType:
@@ -362,6 +379,8 @@ class Project:
         # acknowledged findings: [{element_id, message, reason}] — waived
         # with engineering justification, kept as an audit trail.
         self.waivers: list = []
+        # optional company/team logo (base64 PNG/JPG) shown on report titles
+        self.logo_b64: str = ""
         self.file_path: Optional[str] = None
 
     def new_tree(self, name: Optional[str] = None) -> PowerTree:

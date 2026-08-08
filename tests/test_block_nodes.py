@@ -17,11 +17,18 @@ from powertree.ui.layout import compute_layout, BLOCK_PREFIX  # noqa: E402
 
 
 def _no_overlaps(lay, tol=1.0):
+    grid_members = {}
+    for grid_rid, ginfo in lay.grid_groups.items():
+        for mid in ginfo.member_ids:
+            grid_members[mid] = grid_rid
     rids = list(lay.render_nodes)
     for i, a in enumerate(rids):
         ax, ay = lay.positions[a]
         aw, ah = lay.sizes[a]
         for b in rids[i + 1:]:
+            # a grid container contains its members by design
+            if grid_members.get(a) == b or grid_members.get(b) == a:
+                continue
             bx, by = lay.positions[b]
             bw, bh = lay.sizes[b]
             if abs(ax - bx) * 2 < (aw + bw) - tol and \
@@ -150,6 +157,49 @@ def test_all_blocks_collapsed_still_routes_and_solves():
         serialization.save_project(p, path)
         p2 = serialization.load_project(path)
     assert all(b.collapsed for b in p2.trees[0].blocks.values())
+
+
+def test_leaf_grid_wrapping_tames_width():
+    t = PowerTree("t")
+    src = t.add_element(Source(v_min=5, v_typ=5, v_max=5))
+    c = t.add_element(Converter(signal_name="V1", vout_min=3.3,
+                                vout_typ=3.3, vout_max=3.3),
+                      parent_id=src.id)
+    for i in range(24):
+        t.add_element(Load(name=f"L{i}", load_type=LoadType.CURRENT,
+                           value_typ=0.01), parent_id=c.id)
+    wide = compute_layout(t, "TD", grid_threshold=0)     # wrapping off
+    lay = compute_layout(t, "TD", grid_threshold=7)      # wrapping on
+    assert len(lay.grid_groups) == 1
+    grid_rid, ginfo = next(iter(lay.grid_groups.items()))
+    assert len(ginfo.member_ids) == 24 and ginfo.net == "V1"
+    # dramatic width reduction (ribbon -> grid)
+    assert lay.bounds[2] < wide.bounds[2] / 3, \
+        (lay.bounds[2], wide.bounds[2])
+    # exactly one edge feeds the grid; members sit inside the container
+    feeds = [e for e in lay.edges if e[1] == grid_rid]
+    assert len(feeds) == 1
+    gx, gy = lay.positions[grid_rid]
+    gw, gh = lay.sizes[grid_rid]
+    for mid in ginfo.member_ids:
+        mx, my = lay.positions[mid]
+        assert gx - gw / 2 < mx < gx + gw / 2
+        assert gy - gh / 2 < my < gy + gh / 2
+        assert mid in lay.render_nodes                  # still drawn
+    ok, pair = _no_overlaps(lay)
+    assert ok, f"overlap: {pair}"
+
+
+def test_grid_members_never_include_companions():
+    p = api.demo_project()
+    tree = p.trees[0]
+    lay = compute_layout(tree, "TD", grid_threshold=4)
+    attached_iq = [e.id for e in tree.elements.values()
+                   if e.name == "Controller Iq"]
+    for ginfo in lay.grid_groups.values():
+        for mid in ginfo.member_ids:
+            assert mid not in attached_iq, \
+                "companion Iq loads must stay tucked beside their converter"
 
 
 if __name__ == "__main__":

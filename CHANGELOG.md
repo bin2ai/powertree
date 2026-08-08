@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.8.0 — 2026-08-08
+
+Implements every actionable finding of the v0.7.0 audit
+(docs/AUDIT-2026-08-07.md); deferred architecture items are designed in
+docs/ROADMAP.md.
+
+### Scale & responsiveness (P0)
+- Rail-grid wrapping: many leaf loads on one rail lay out as a compact grid
+  with a single bus edge — a 501-element board is 7.4× narrower (135k px →
+  18k px). Threshold configurable (Settings / per view), off in custom mode.
+- Click-to-navigate minimap overlay (toggleable).
+- Exports run in worker threads with a busy dialog — no more 8-second GUI
+  freezes; renders cap their longest side (16k px) by auto-reducing scale.
+- Jump-to-finding / search-Enter now auto-expands collapsed branches and
+  blocks hiding the target.
+- Editing: drag-drop re-parenting in the list view (model-validated),
+  multi-select delete, and subtree copy/paste (Ctrl+Alt+C/V) via the OS
+  clipboard — works across trees, projects and app instances.
+
+### Model depth (P1)
+- Resistive loads (I = V/R, solved in the corner fixed-point).
+- Load duty cycle: min/typ corners budget the duty-weighted average draw;
+  the max corner keeps the full peak.
+- Unregulated converter topology: Vout = ratio × Vin, tracking per corner.
+- Power-up sequencing: converters carry a sequence step; a rail enabling
+  before its input rail is flagged.
+- Library maturity: parts stamped with version/author/date (version bumps
+  on overwrite), import-conflict handling (overwrite/rename/skip), export
+  the whole library, and a project-local library (powertree_library.json
+  next to the .ptproj — commit it with the design).
+- Reports: embedded project logo on PDF/HTML titles, pre-export tree
+  selection, include/exclude waived findings.
+- Nets view/report now state their scope explicitly (name registry;
+  cross-tree merged solving is a roadmap item).
+
+### Usability (P2)
+- Command palette (Ctrl+K) searching every menu action.
+- Message log dock — status messages persist with timestamps.
+- Arrow-key navigation on the canvas (parent/child/siblings).
+- Print style now applies a light theme to the whole app window.
+
+### Process (P3)
+- CI: ruff lint gate, coverage floor, and a Linux test leg.
+- Version single-sourced from powertree.__version__.
+- Releases: the publish workflow now creates the GitHub Release with the
+  Windows installer zip and wheels attached, notes taken from this file.
+- CONTRIBUTING.md + issue templates.
+- Rotating file log (%APPDATA%/PowerTree/powertree.log) + GUI crash dialog.
+- .ptproj migration framework (versioned upgrade registry).
+- Autosave now also protects never-saved projects (startup recovery).
+- README gained screenshots.
+
 ## 0.7.0 — 2026-08-07
 
 ### Block Designer

@@ -18,7 +18,8 @@ from .elements import PowerTree, Project, ElementKind
 SCENARIO_FIELDS = {
     ElementKind.SOURCE: ("v_min", "v_typ", "v_max"),
     ElementKind.CONVERTER: ("efficiency_pct", "quiescent_ma"),
-    ElementKind.LOAD: ("value_typ", "value_max"),
+    ElementKind.LOAD: ("value_typ", "value_max", "duty_cycle_pct",
+                       "resistance_ohm"),
     ElementKind.SERIES: ("resistance_ohm",),
 }
 
@@ -26,7 +27,7 @@ FIELD_LABELS = {
     "v_min": "V min (V)", "v_typ": "V typ (V)", "v_max": "V max (V)",
     "efficiency_pct": "Efficiency (%)", "quiescent_ma": "Iq (mA)",
     "value_typ": "Value typ", "value_max": "Value peak",
-    "resistance_ohm": "Resistance (Ω)",
+    "duty_cycle_pct": "Duty (%)", "resistance_ohm": "Resistance (Ω)",
 }
 
 

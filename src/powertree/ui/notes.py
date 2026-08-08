@@ -245,8 +245,6 @@ class NotesPanel(QWidget):
         note = self.selected_note()
         if not note or not self.project:
             return
-        count = 1 + len([1 for n in self.project.notes.values()
-                         if n.parent_id == note.id])
         if QMessageBox.question(
                 self, "Delete note",
                 f"Delete '{note.title}' and all child notes?") \

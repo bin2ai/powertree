@@ -15,7 +15,7 @@ import os
 import re
 
 from .model.elements import (
-    PowerTree, Element, ElementKind, Block,
+    PowerTree, ElementKind,
 )
 
 LIBRARY_ENV = "POWERTREE_LIBRARY"
@@ -25,16 +25,22 @@ LIBRARY_ENV = "POWERTREE_LIBRARY"
 _COMMON_FIELDS = ("signal_name", "part_number", "pins", "datasheet",
                   "description")
 _KIND_FIELDS = {
-    ElementKind.CONVERTER: ("topology", "efficiency_pct", "eff_points",
-                            "vout_min", "vout_typ", "vout_max", "limit_type",
+    ElementKind.CONVERTER: ("topology", "ratio", "seq_order",
+                            "efficiency_pct", "eff_points", "vout_min",
+                            "vout_typ", "vout_max", "limit_type",
                             "limit_value", "quiescent_ma"),
-    ElementKind.LOAD: ("load_type", "value_typ", "value_max", "v_in_min",
+    ElementKind.LOAD: ("load_type", "value_typ", "value_max",
+                       "resistance_ohm", "duty_cycle_pct", "v_in_min",
                        "v_in_max"),
     ElementKind.SERIES: ("series_type", "resistance_ohm", "inductance_uh",
                          "rating", "i_max", "p_max", "v_in_min", "v_in_max"),
 }
 _STYLE_FIELDS = ("color", "width", "height", "pin_side", "pin_order",
                  "info_text", "show_stats")
+
+
+PROJECT_LIB_ENV = "POWERTREE_PROJECT_LIB"
+PROJECT_LIB_NAME = "powertree_library.json"
 
 
 def library_path() -> str:
@@ -45,9 +51,14 @@ def library_path() -> str:
     return os.path.join(base, "PowerTree", "library.json")
 
 
-def load_library() -> list:
-    path = library_path()
-    if not os.path.exists(path):
+def project_library_path() -> str | None:
+    """Repo-committable library next to the open project (set by the GUI /
+    POWERTREE_PROJECT_LIB) — lets teams version parts with their design."""
+    return os.environ.get(PROJECT_LIB_ENV) or None
+
+
+def load_parts(path: str) -> list:
+    if not path or not os.path.exists(path):
         return []
     try:
         with open(path, "r", encoding="utf-8") as fh:
@@ -57,28 +68,63 @@ def load_library() -> list:
         return []
 
 
-def save_library(parts: list) -> str:
-    path = library_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+def load_library() -> list:
+    return load_parts(library_path())
+
+
+def save_library(parts: list, path: str | None = None) -> str:
+    path = path or library_path()
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(parts, fh, indent=2, ensure_ascii=False)
     return path
 
 
-def add_part(part: dict) -> None:
+def _stamp_meta(part: dict, existing: dict | None) -> None:
+    """Version/author/date metadata; version bumps when overwriting."""
+    import getpass
+    from datetime import date
+    meta = dict(part.get("meta") or {})
+    prev = (existing or {}).get("meta") or {}
+    meta["version"] = int(prev.get("version", 0)) + 1
+    meta.setdefault("author", None)
+    if not meta["author"]:
+        try:
+            meta["author"] = getpass.getuser()
+        except Exception:
+            meta["author"] = "unknown"
+    meta["updated"] = date.today().isoformat()
+    part["meta"] = meta
+
+
+def add_part(part: dict, path: str | None = None) -> dict:
     _validate_part(part)
-    parts = [p for p in load_library() if p.get("key") != part["key"]]
+    parts = load_parts(path or library_path())
+    existing = next((p for p in parts if p.get("key") == part["key"]), None)
+    _stamp_meta(part, existing)
+    parts = [p for p in parts if p.get("key") != part["key"]]
     parts.append(part)
-    save_library(parts)
+    save_library(parts, path)
+    return part
 
 
-def remove_part(key: str) -> bool:
-    parts = load_library()
+def remove_part(key: str, path: str | None = None) -> bool:
+    target = path or library_path()
+    parts = load_parts(target)
     kept = [p for p in parts if p.get("key") != key]
     if len(kept) < len(parts):
-        save_library(kept)
+        save_library(kept, target)
         return True
     return False
+
+
+def export_library(path: str) -> str:
+    """Export the entire user library to one shareable file."""
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(load_library(), fh, indent=2, ensure_ascii=False)
+    return path
 
 
 def _validate_part(part: dict) -> None:
@@ -204,13 +250,30 @@ def export_part(part: dict, path: str) -> str:
     return path
 
 
-def import_part(path: str, add_to_library: bool = True) -> list:
-    """Import one part (or a list of parts) from a JSON file."""
+def import_part(path: str, add_to_library: bool = True,
+                on_conflict: str = "overwrite") -> list:
+    """Import one part (or a list of parts) from a JSON file.
+    on_conflict: 'overwrite' (version bumps), 'skip', or 'rename'
+    (imported part gets a fresh '<key>_2' style key)."""
     with open(path, "r", encoding="utf-8") as fh:
         data = json.load(fh)
     parts = data if isinstance(data, list) else [data]
+    existing_keys = {p.get("key") for p in load_library()}
+    imported = []
     for part in parts:
         _validate_part(part)
+        if part["key"] in existing_keys:
+            if on_conflict == "skip":
+                continue
+            if on_conflict == "rename":
+                base = part["key"]
+                i = 2
+                while f"{base}_{i}" in existing_keys:
+                    i += 1
+                part = dict(part, key=f"{base}_{i}",
+                            name=f"{part['name']} ({i})")
         if add_to_library:
             add_part(part)
-    return parts
+        existing_keys.add(part["key"])
+        imported.append(part)
+    return imported

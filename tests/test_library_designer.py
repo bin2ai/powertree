@@ -1,6 +1,5 @@
 """Tests for the component library and the block designer model/layout."""
 
-import json
 import math
 import os
 import sys
@@ -11,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from powertree import api, library  # noqa: E402
 from powertree.model.elements import (  # noqa: E402
-    PowerTree, Project, Source, Converter, Load, LoadType,
+    PowerTree, Source, Converter, Load,
 )
 from powertree.model.calc import solve_tree  # noqa: E402
 from powertree.model import serialization  # noqa: E402
